@@ -199,12 +199,36 @@ async function loadDashboard() {
         const inativos = total - ativos;
         const maquinas = users.filter((u) => u.Hostname && u.Hostname !== "").length;
 
-        document.getElementById("stat-total").textContent = total;
-        document.getElementById("stat-ativos").textContent = ativos;
-        document.getElementById("stat-inativos").textContent = inativos;
-        document.getElementById("stat-maquinas").textContent = maquinas;
+        const statTotal = document.getElementById("stat-total");
+        const statAtivos = document.getElementById("stat-ativos");
+        const statInativos = document.getElementById("stat-inativos");
+        const statMaquinas = document.getElementById("stat-maquinas");
+
+        if (statTotal) statTotal.textContent = total;
+        if (statAtivos) statAtivos.textContent = ativos;
+        if (statInativos) statInativos.textContent = inativos;
+        if (statMaquinas) statMaquinas.textContent = maquinas;
 
         renderDashboardLists(users);
+
+        const dbTbody = document.getElementById("dashboard-table-body");
+        if (dbTbody) {
+            const lastUsers = users.slice().reverse().slice(0, 5);
+            if (lastUsers.length === 0) {
+                dbTbody.innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum registro encontrado.</td></tr>';
+            } else {
+                dbTbody.innerHTML = lastUsers.map((u) => `
+                    <tr>
+                        <td><span class="mono">${u.RACF || "—"}</span></td>
+                        <td><span class="mono">${u.Funcional || "—"}</span></td>
+                        <td>${u.Nome || "—"}</td>
+                        <td><span class="mono">${u.Hostname || "—"}</span></td>
+                        <td><span class="mono">${u.IP || "—"}</span></td>
+                        <td><span class="badge badge-${(u.Status || "ativo").toLowerCase()}"><span class="badge-dot"></span>${u.Status || "Ativo"}</span></td>
+                    </tr>
+                `).join("");
+            }
+        }
     } catch (error) {
         console.error("Erro ao carregar dashboard", error);
     }
