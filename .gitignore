@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 
-# Ignorar banco de dados local e seus backups
+# Ignorar banco de dados local, seus backups e scripts de teste
 usuarios.xlsx
 usuarios.xlsx.bak
+seed.py
