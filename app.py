@@ -10,26 +10,31 @@ EXCEL_FILE = "usuarios.xlsx"
 COLUMNS = ["ID", "RACF", "Funcional", "Nome", "Email", "Serial", "Hostname", "IP", "Status"]
 
 
+# Cria o arquivo de banco de dados (Excel) com as colunas caso não exista
 def init_excel():
     if not os.path.exists(EXCEL_FILE):
         df = pd.DataFrame(columns=COLUMNS)
         df.to_excel(EXCEL_FILE, index=False)
 
 
+# Lê o arquivo Excel e retorna os dados em formato DataFrame (Tabela do Pandas)
 def read_excel():
     if not os.path.exists(EXCEL_FILE):
         init_excel()
     df = pd.read_excel(EXCEL_FILE)
+    # Garante que todas as colunas existem na leitura para evitar erros
     for col in COLUMNS:
         if col not in df.columns:
             df[col] = ""
     return df
 
 
+# Salva o DataFrame atualizado de volta no arquivo Excel
 def save_excel(df):
     df.to_excel(EXCEL_FILE, index=False)
 
 
+# Gera um novo ID único (Auto Incremento) pegando o maior ID atual + 1
 def next_id():
     df = read_excel()
     if df.empty:
@@ -48,8 +53,10 @@ def index():
 
 @app.route("/cadastrar", methods=["POST"])
 def cadastrar():
+    # Rota que recebe os dados do frontend em formato JSON
     dados = request.get_json()
 
+    # Validação de campos obrigatórios
     for campo in ["RACF", "Funcional", "Nome"]:
         if not dados.get(campo):
             return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
@@ -80,6 +87,7 @@ def cadastrar():
         "Status": dados.get("Status", "Ativo"),
     }
 
+    # Adiciona o novo registro na tabela e salva no Excel
     df = pd.concat([df, pd.DataFrame([novo])], ignore_index=True)
     save_excel(df)
 
@@ -88,10 +96,12 @@ def cadastrar():
 
 @app.route("/usuarios", methods=["GET"])
 def listar():
+    # Retorna a lista completa de usuários ou filtra caso haja uma pesquisa (busca)
     df = read_excel()
     busca = request.args.get("busca", "").strip().lower()
 
     if busca and not df.empty:
+        # Filtra linhas onde qualquer valor de coluna contenha o texto da busca
         mask = df.apply(
             lambda row: row.astype(str).str.lower().str.contains(busca).any(), axis=1
         )
@@ -103,6 +113,7 @@ def listar():
 
 @app.route("/usuarios/<int:user_id>", methods=["GET"])
 def buscar(user_id):
+    # Retorna os detalhes de um único usuário pelo ID
     df = read_excel()
     usuario = df[df["ID"] == user_id]
 
@@ -135,6 +146,7 @@ def editar(user_id):
         if email_req and email_req in outros_df["Email"].astype(str).str.strip().str.lower().values:
             return jsonify({"erro": "Já existe outro usuário cadastrado com este E-mail."}), 409
 
+    # Atualiza apenas os campos enviados
     i = idx[0]
     for campo in ["RACF", "Funcional", "Nome", "Email", "Serial", "Hostname", "IP", "Status"]:
         if campo in dados:
@@ -149,6 +161,7 @@ def editar(user_id):
 
 @app.route("/usuarios/<int:user_id>", methods=["DELETE"])
 def excluir(user_id):
+    # Remove a linha cujo ID bate com o enviado
     df = read_excel()
 
     if user_id not in df["ID"].values:
@@ -164,10 +177,13 @@ def excluir(user_id):
 
 @app.route("/ping/<hostname>", methods=["GET"])
 def ping_host(hostname):
+    # Proteção de segurança: apenas letras, números, hífens e pontos
     if not re.match(r'^[a-zA-Z0-9\-\.]+$', hostname):
         return jsonify({"erro": "Hostname inválido."}), 400
 
     try:
+        # Dispara comando no Windows:
+        # ping -4 (apenas IPv4) -n 1 (1 pacote) -w 3000 (espera até 3s)
         result = subprocess.run(
             ["ping", "-4", "-n", "1", "-w", "3000", hostname],
             capture_output=True,
@@ -177,7 +193,7 @@ def ping_host(hostname):
 
         output = result.stdout
 
-        # Pega especificamente um padrão IPv4 (x.x.x.x)
+        # Usa Regex para capturar especificamente um padrão IPv4 (x.x.x.x) na resposta do ping
         match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', output)
 
         if match:
