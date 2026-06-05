@@ -732,7 +732,24 @@ function getActionTarget(userId) {
     const card = document.getElementById(`lookup-card-${userId}`);
     if (!card) return null;
     
-    // 1. Tenta pegar o IP Atual resolvido ao vivo
+    const fields = card.querySelectorAll('.lookup-field');
+    
+    // 1. Prioridade máxima: Hostname (necessário para Kerberos / Active Directory no comando shutdown)
+    for (let field of fields) {
+        const label = field.querySelector('.lookup-label');
+        const value = field.querySelector('.lookup-value');
+        if (label && value) {
+            const labelText = label.textContent.toLowerCase();
+            if (labelText.includes("hostname")) {
+                const valText = value.textContent.trim();
+                if (valText && valText !== "—" && valText !== "") {
+                    return valText;
+                }
+            }
+        }
+    }
+    
+    // 2. Fallback 1: IP Atual resolvido ao vivo
     const liveIpEl = document.getElementById(`live-ip-${userId}`);
     if (liveIpEl) {
         const match = liveIpEl.innerText.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
@@ -741,8 +758,7 @@ function getActionTarget(userId) {
         }
     }
     
-    // 2. Se não houver IP ao vivo resolvido, tenta pegar o IP Cadastrado
-    const fields = card.querySelectorAll('.lookup-field');
+    // 3. Fallback 2: IP Cadastrado
     for (let field of fields) {
         const label = field.querySelector('.lookup-label');
         const value = field.querySelector('.lookup-value');
@@ -751,21 +767,6 @@ function getActionTarget(userId) {
             if (labelText.includes("ip cadastrado") || labelText.includes("ip")) {
                 const valText = value.textContent.replace(/[^0-9\.]/g, '').trim();
                 if (valText && valText !== "—" && valText !== "") {
-                    return valText;
-                }
-            }
-        }
-    }
-    
-    // 3. Fallback para o Hostname cadastrado
-    for (let field of fields) {
-        const label = field.querySelector('.lookup-label');
-        const value = field.querySelector('.lookup-value');
-        if (label && value) {
-            const labelText = label.textContent.toLowerCase();
-            if (labelText.includes("hostname")) {
-                const valText = value.textContent.trim();
-                if (valText && valText !== "—") {
                     return valText;
                 }
             }
