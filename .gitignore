@@ -2,5 +2,6 @@
 __pycache__/
 *.pyc
 
-# Ignorar banco de dados local para não subir dados reais de usuários no repositório público
+# Ignorar banco de dados local e seus backups
 usuarios.xlsx
+usuarios.xlsx.bak
