@@ -92,8 +92,8 @@ def cadastrar():
     # Rota que recebe os dados do frontend em formato JSON
     dados = request.get_json()
 
-    # Validação de campos obrigatórios — TODOS os campos são obrigatórios
-    for campo in ["RACF", "Funcional", "Nome", "Email", "Serial", "Hostname"]:
+    # Validação de campos obrigatórios
+    for campo in ["RACF", "Funcional", "Nome", "Email", "Hostname"]:
         if not str(dados.get(campo, "")).strip():
             return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
 
@@ -129,7 +129,7 @@ def cadastrar():
         "Funcional": func_req,
         "Nome": dados["Nome"].strip(),
         "Email": dados["Email"].strip(),
-        "Serial": dados["Serial"].strip(),
+        "Serial": str(dados.get("Serial", "")).strip(),
         "Hostname": dados["Hostname"].strip(),
         "IP": str(dados.get("IP", "")).strip(),
         "Status": dados.get("Status", "Ativo"),
@@ -179,8 +179,8 @@ def editar(user_id):
     if idx.empty:
         return jsonify({"erro": "Usuário não encontrado."}), 404
 
-    # Validação de campos obrigatórios — TODOS os campos são obrigatórios na edição
-    for campo in ["RACF", "Funcional", "Nome", "Email", "Serial", "Hostname"]:
+    # Validação de campos obrigatórios na edição
+    for campo in ["RACF", "Funcional", "Nome", "Email", "Hostname"]:
         if campo in dados and not str(dados[campo]).strip():
             return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
 
