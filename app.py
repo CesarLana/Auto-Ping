@@ -1,6 +1,7 @@
 import os
 import subprocess
 import re
+import shutil
 from flask import Flask, request, jsonify, send_from_directory
 import pandas as pd
 
@@ -17,20 +18,55 @@ def init_excel():
         df.to_excel(EXCEL_FILE, index=False)
 
 
-# Lê o arquivo Excel e retorna os dados em formato DataFrame (Tabela do Pandas)
+# Backup automático do banco de dados Excel antes de escritas
+def backup_excel():
+    if os.path.exists(EXCEL_FILE):
+        backup_file = EXCEL_FILE + ".bak"
+        try:
+            shutil.copy2(EXCEL_FILE, backup_file)
+        except Exception as e:
+            print(f"Erro ao criar backup do Excel: {e}")
+
+
+# Lê o arquivo Excel, normaliza e retorna os dados em formato DataFrame limpo
 def read_excel():
     if not os.path.exists(EXCEL_FILE):
         init_excel()
-    df = pd.read_excel(EXCEL_FILE)
+    try:
+        df = pd.read_excel(EXCEL_FILE)
+    except Exception:
+        df = pd.DataFrame(columns=COLUMNS)
+        
     # Garante que todas as colunas existem na leitura para evitar erros
     for col in COLUMNS:
         if col not in df.columns:
             df[col] = ""
+            
+    # Normaliza IDs
+    df["ID"] = pd.to_numeric(df["ID"], errors="coerce").fillna(0).astype(int)
+    
+    # Normaliza colunas de texto para evitar "nan" e formatações de float indesejadas (ex: 123.0 -> "123")
+    text_cols = ["RACF", "Funcional", "Nome", "Email", "Serial", "Hostname", "IP", "Status"]
+    for col in text_cols:
+        df[col] = df[col].apply(
+            lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else (str(x) if pd.notna(x) else "")
+        )
+        df[col] = df[col].str.strip()
+        
+    # Higienizações específicas de case-insensitive
+    df["RACF"] = df["RACF"].str.upper()
+    df["Email"] = df["Email"].str.lower()
+    df["Hostname"] = df["Hostname"].str.upper()
+    
+    # Status padrão
+    df["Status"] = df["Status"].apply(lambda x: x if x in ["Ativo", "Inativo"] else "Ativo")
+    
     return df
 
 
-# Salva o DataFrame atualizado de volta no arquivo Excel
+# Salva o DataFrame atualizado de volta no arquivo Excel (com backup preventivo)
 def save_excel(df):
+    backup_excel()
     df.to_excel(EXCEL_FILE, index=False)
 
 
@@ -76,15 +112,15 @@ def cadastrar():
 
     df = read_excel()
 
-    # Verificação de duplicatas (case-insensitive)
+    # Verificação de duplicatas (usando dados já normalizados)
     if not df.empty:
-        if racf_req in df["RACF"].astype(str).str.strip().str.upper().values:
+        if racf_req in df["RACF"].values:
             return jsonify({"erro": "Já existe um usuário cadastrado com este RACF."}), 409
-        if func_req in df["Funcional"].astype(str).str.strip().values:
+        if func_req in df["Funcional"].values:
             return jsonify({"erro": "Já existe um usuário cadastrado com esta Funcional."}), 409
-        if email_req and email_req in df["Email"].astype(str).str.strip().str.lower().values:
+        if email_req and email_req in df["Email"].values:
             return jsonify({"erro": "Já existe um usuário cadastrado com este E-mail."}), 409
-        if hostname_req in df["Hostname"].astype(str).str.strip().str.upper().values:
+        if hostname_req in df["Hostname"].values:
             return jsonify({"erro": "Já existe um usuário cadastrado com este Hostname."}), 409
 
     novo = {
@@ -119,7 +155,6 @@ def listar():
         )
         df = df[mask]
 
-    df = df.fillna("")
     return jsonify(df.to_dict(orient="records"))
 
 
@@ -132,7 +167,7 @@ def buscar(user_id):
     if usuario.empty:
         return jsonify({"erro": "Usuário não encontrado."}), 404
 
-    return jsonify(usuario.iloc[0].fillna("").to_dict())
+    return jsonify(usuario.iloc[0].to_dict())
 
 
 @app.route("/usuarios/<int:user_id>", methods=["PUT"])
@@ -165,15 +200,15 @@ def editar(user_id):
     # Exclui o registro atual da verificação de duplicatas
     outros_df = df[df["ID"] != user_id]
 
-    # Verificação de duplicatas (case-insensitive), excluindo o próprio registro
+    # Verificação de duplicatas (usando dados já normalizados), excluindo o próprio registro
     if not outros_df.empty:
-        if racf_req and racf_req in outros_df["RACF"].astype(str).str.strip().str.upper().values:
+        if racf_req and racf_req in outros_df["RACF"].values:
             return jsonify({"erro": "Já existe outro usuário cadastrado com este RACF."}), 409
-        if func_req and func_req in outros_df["Funcional"].astype(str).str.strip().values:
+        if func_req and func_req in outros_df["Funcional"].values:
             return jsonify({"erro": "Já existe outro usuário cadastrado com esta Funcional."}), 409
-        if email_req and email_req in outros_df["Email"].astype(str).str.strip().str.lower().values:
+        if email_req and email_req in outros_df["Email"].values:
             return jsonify({"erro": "Já existe outro usuário cadastrado com este E-mail."}), 409
-        if hostname_req and hostname_req in outros_df["Hostname"].astype(str).str.strip().str.upper().values:
+        if hostname_req and hostname_req in outros_df["Hostname"].values:
             return jsonify({"erro": "Já existe outro usuário cadastrado com este Hostname."}), 409
 
     # Atualiza apenas os campos enviados
@@ -186,7 +221,7 @@ def editar(user_id):
             df.at[i, campo] = valor
 
     save_excel(df)
-    return jsonify({"mensagem": "Usuário atualizado com sucesso!", "usuario": df.loc[i].fillna("").to_dict()})
+    return jsonify({"mensagem": "Usuário atualizado com sucesso!", "usuario": df.loc[i].to_dict()})
 
 
 @app.route("/usuarios/<int:user_id>", methods=["DELETE"])
@@ -223,12 +258,21 @@ def ping_host(hostname):
 
         output = result.stdout
 
-        # Usa Regex para capturar especificamente um padrão IPv4 (x.x.x.x) na resposta do ping
-        match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', output)
+        # Tenta capturar primeiro o IP do destinatário contido entre colchetes (ex: "Disparando BRA-PC [10.0.0.5]...")
+        # para evitar pegar o IP do gateway/roteador em caso de erro "Host de destino inacessível"
+        ip = None
+        first_line_match = re.search(r'\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]', output)
+        if first_line_match:
+            ip = first_line_match.group(1)
+        else:
+            # Fallback para qualquer IP presente na saída do comando
+            match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', output)
+            if match:
+                ip = match.group(1)
 
-        if match:
-            ip = match.group(1)
-            online = "Resposta de" in output or "Reply from" in output
+        if ip:
+            # Verifica se o host respondeu de fato analisando a presença de "ttl=" no texto e o returncode
+            online = result.returncode == 0 and "ttl=" in output.lower()
             return jsonify({
                 "hostname": hostname,
                 "ip": ip,
