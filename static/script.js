@@ -116,7 +116,7 @@ let modalCallback = null;
 
 function openConfirmModal(title, message, confirmText, confirmClass, callback) {
     document.getElementById("modal-title").textContent = title;
-    document.getElementById("modal-message").textContent = message;
+    document.getElementById("modal-message").innerHTML = message;
     
     const confirmBtn = document.getElementById("btn-confirm-action");
     confirmBtn.textContent = confirmText;
@@ -732,24 +732,7 @@ function getActionTarget(userId) {
     const card = document.getElementById(`lookup-card-${userId}`);
     if (!card) return null;
     
-    const fields = card.querySelectorAll('.lookup-field');
-    
-    // 1. Prioridade máxima: Hostname (necessário para Kerberos / Active Directory no comando shutdown)
-    for (let field of fields) {
-        const label = field.querySelector('.lookup-label');
-        const value = field.querySelector('.lookup-value');
-        if (label && value) {
-            const labelText = label.textContent.toLowerCase();
-            if (labelText.includes("hostname")) {
-                const valText = value.textContent.trim();
-                if (valText && valText !== "—" && valText !== "") {
-                    return valText;
-                }
-            }
-        }
-    }
-    
-    // 2. Fallback 1: IP Atual resolvido ao vivo
+    // 1. Prioridade 1: IP Atual resolvido ao vivo
     const liveIpEl = document.getElementById(`live-ip-${userId}`);
     if (liveIpEl) {
         const match = liveIpEl.innerText.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
@@ -758,7 +741,8 @@ function getActionTarget(userId) {
         }
     }
     
-    // 3. Fallback 2: IP Cadastrado
+    // 2. Prioridade 2: IP Cadastrado
+    const fields = card.querySelectorAll('.lookup-field');
     for (let field of fields) {
         const label = field.querySelector('.lookup-label');
         const value = field.querySelector('.lookup-value');
@@ -773,33 +757,61 @@ function getActionTarget(userId) {
         }
     }
     
+    // 3. Fallback para o Hostname cadastrado
+    for (let field of fields) {
+        const label = field.querySelector('.lookup-label');
+        const value = field.querySelector('.lookup-value');
+        if (label && value) {
+            const labelText = label.textContent.toLowerCase();
+            if (labelText.includes("hostname")) {
+                const valText = value.textContent.trim();
+                if (valText && valText !== "—") {
+                    return valText;
+                }
+            }
+        }
+    }
+    
     return null;
+}
+
+function copyModalCommand() {
+    const cmdInput = document.getElementById("cmd-to-copy");
+    if (cmdInput) {
+        navigator.clipboard.writeText(cmdInput.value).then(() => {
+            showToast("Comando copiado com sucesso!", "success");
+        }).catch(err => {
+            showToast("Erro ao copiar comando: " + err, "error");
+        });
+    }
 }
 
 function confirmShutdown(userId, name) {
     const target = getActionTarget(userId);
     if (!target) {
-        showToast("Nenhum IP ou Hostname disponível para enviar o comando.", "error");
+        showToast("Nenhum IP ou Hostname disponível para a máquina.", "error");
         return;
     }
+    
+    const cmd = `shutdown /s /f /t 0 /m \\\\${target}`;
+    const messageHtml = `
+        <p style="margin-bottom: 12px;">Copie o comando abaixo e execute-o no seu CMD de Administrador para <strong>desligar</strong> a máquina de <strong>${name}</strong>:</p>
+        <div style="position:relative; margin-top:12px;">
+            <input type="text" id="cmd-to-copy" value="${cmd}" readonly 
+                style="width:100%; padding:12px 40px 12px 12px; font-family: Consolas, monospace; font-size:0.85rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-hover); color:var(--text-primary); outline:none;">
+            <button type="button" class="btn-copy" onclick="copyModalCommand()" title="Copiar Comando" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); margin:0; padding:4px; display:inline-flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+        </div>
+    `;
+    
     openConfirmModal(
-        "Confirmar Desligamento",
-        `Tem certeza que deseja DESLIGAR a máquina de ${name}? (Alvo: ${target})`,
-        "Desligar Máquina",
+        "Desligar Máquina (Gerar Comando)",
+        messageHtml,
+        "Copiar e Fechar",
         "btn-danger",
-        async () => {
-            showToast("Enviando comando de desligamento...", "success");
-            try {
-                const res = await fetch(`/usuarios/desligar/${encodeURIComponent(target)}`, { method: "POST" });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.mensagem, "success");
-                } else {
-                    showToast(data.erro || "Erro ao desligar a máquina.", "error");
-                }
-            } catch {
-                showToast("Erro de conexão com o servidor.", "error");
-            }
+        () => {
+            copyModalCommand();
         }
     );
 }
@@ -807,27 +819,29 @@ function confirmShutdown(userId, name) {
 function confirmRestart(userId, name) {
     const target = getActionTarget(userId);
     if (!target) {
-        showToast("Nenhum IP ou Hostname disponível para enviar o comando.", "error");
+        showToast("Nenhum IP ou Hostname disponível para a máquina.", "error");
         return;
     }
+    
+    const cmd = `shutdown /r /f /t 0 /m \\\\${target}`;
+    const messageHtml = `
+        <p style="margin-bottom: 12px;">Copie o comando abaixo e execute-o no seu CMD de Administrador para <strong>reiniciar</strong> a máquina de <strong>${name}</strong>:</p>
+        <div style="position:relative; margin-top:12px;">
+            <input type="text" id="cmd-to-copy" value="${cmd}" readonly 
+                style="width:100%; padding:12px 40px 12px 12px; font-family: Consolas, monospace; font-size:0.85rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-hover); color:var(--text-primary); outline:none;">
+            <button type="button" class="btn-copy" onclick="copyModalCommand()" title="Copiar Comando" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); margin:0; padding:4px; display:inline-flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+        </div>
+    `;
+    
     openConfirmModal(
-        "Confirmar Reinicialização",
-        `Tem certeza que deseja REINICIAR a máquina de ${name}? (Alvo: ${target})`,
-        "Reiniciar Máquina",
+        "Reiniciar Máquina (Gerar Comando)",
+        messageHtml,
+        "Copiar e Fechar",
         "btn-primary",
-        async () => {
-            showToast("Enviando comando de reinicialização...", "success");
-            try {
-                const res = await fetch(`/usuarios/reiniciar/${encodeURIComponent(target)}`, { method: "POST" });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.mensagem, "success");
-                } else {
-                    showToast(data.erro || "Erro ao reiniciar a máquina.", "error");
-                }
-            } catch {
-                showToast("Erro de conexão com o servidor.", "error");
-            }
+        () => {
+            copyModalCommand();
         }
     );
 }

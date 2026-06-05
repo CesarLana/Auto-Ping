@@ -318,60 +318,6 @@ def ping_host(hostname):
         return jsonify({"erro": str(e)}), 500
 
 
-@app.route("/usuarios/desligar/<target>", methods=["POST"])
-def desligar_maquina(target):
-    # Proteção de segurança: apenas letras, números, hífens, pontos e underscores
-    if not re.match(r'^[a-zA-Z0-9\-\._]+$', target):
-        return jsonify({"erro": "Alvo inválido."}), 400
-
-    try:
-        # shutdown /s (desliga) /f (força fechamento de apps) /t 0 (tempo zero) /m \\target
-        result = subprocess.run(
-            ["shutdown", "/s", "/f", "/t", "0", "/m", f"\\\\{target}"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        if result.returncode == 0:
-            return jsonify({"mensagem": f"Comando de desligamento enviado com sucesso para a máquina '{target}'!"}), 200
-        else:
-            erro_msg = result.stderr.strip() or result.stdout.strip() or "Erro desconhecido ao executar o comando shutdown."
-            return jsonify({"erro": f"Erro do Windows: {erro_msg}"}), 500
-
-    except subprocess.TimeoutExpired:
-        return jsonify({"erro": "Timeout ao tentar enviar o comando de desligamento."}), 408
-    except Exception as e:
-        return jsonify({"erro": f"Falha na execução: {str(e)}"}), 500
-
-
-@app.route("/usuarios/reiniciar/<target>", methods=["POST"])
-def reiniciar_maquina(target):
-    # Proteção de segurança: apenas letras, números, hífens, pontos e underscores
-    if not re.match(r'^[a-zA-Z0-9\-\._]+$', target):
-        return jsonify({"erro": "Alvo inválido."}), 400
-
-    try:
-        # shutdown /r (reinicia) /f (força fechamento de apps) /t 0 (tempo zero) /m \\target
-        result = subprocess.run(
-            ["shutdown", "/r", "/f", "/t", "0", "/m", f"\\\\{target}"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        if result.returncode == 0:
-            return jsonify({"mensagem": f"Comando de reinicialização enviado com sucesso para a máquina '{target}'!"}), 200
-        else:
-            erro_msg = result.stderr.strip() or result.stdout.strip() or "Erro desconhecido ao executar o comando shutdown."
-            return jsonify({"erro": f"Erro do Windows: {erro_msg}"}), 500
-
-    except subprocess.TimeoutExpired:
-        return jsonify({"erro": "Timeout ao tentar enviar o comando de reinicialização."}), 408
-    except Exception as e:
-        return jsonify({"erro": f"Falha na execução: {str(e)}"}), 500
-
-
 if __name__ == "__main__":
     init_excel()
     app.run(debug=True, port=5000)
