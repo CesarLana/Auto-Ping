@@ -32,17 +32,6 @@ python app.py
 ```
 Em seguida, acesse no navegador: `http://localhost:5000`
 
-### Opção 3: Pesquisa Rápida de Usuário na Rede via CMD (achar.bat)
-Se você tem apenas o RACF e quer saber em qual máquina/IP da rede o usuário está logado atualmente de forma rápida usando apenas o prompt de comando, execute:
-```cmd
-achar.bat [RACF]
-```
-Exemplo:
-```cmd
-achar.bat JSILVA
-```
-O script consultará automaticamente o Servidor de Domínio da rede (Logon Server) em busca de eventos de autenticação recentes (Event ID 4624) e retornará o nome do computador (Workstation) e o IP.
-
 
 ## 📁 Estrutura de Arquivos
 
