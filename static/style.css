@@ -1096,3 +1096,48 @@ tbody tr:last-child td {
     font-size: 0.78rem;
     color: var(--text-muted);
 }
+
+/* ─── DROPDOWN DE BUSCA RÁPIDA ───────────────────────────── */
+.lookup-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    z-index: 999;
+    max-height: 250px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
+.lookup-dropdown-item {
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: background var(--transition);
+    border-bottom: 1px solid var(--border);
+}
+
+.lookup-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.lookup-dropdown-item:hover {
+    background: var(--bg-hover);
+}
+
+.lookup-dropdown-name {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.lookup-dropdown-meta {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}

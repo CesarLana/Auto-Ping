@@ -128,14 +128,15 @@
                 <h2>Buscar e Pingar Colaborador</h2>
             </div>
             <div class="lookup-container" style="padding: 20px;">
-                <div class="lookup-search">
+                <div class="lookup-search" style="position: relative;">
                     <div class="search-box search-box-lg">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="11" cy="11" r="8"/>
                             <line x1="21" y1="21" x2="16.65" y2="16.65"/>
                         </svg>
-                        <input type="text" id="lookup-input" placeholder="Digite o RACF, funcional ou nome para pingar em tempo real...">
+                        <input type="text" id="lookup-input" placeholder="Digite o RACF, funcional ou nome para pingar em tempo real..." autocomplete="off">
                     </div>
+                    <div id="lookup-dropdown" class="lookup-dropdown" style="display: none;"></div>
                 </div>
                 <!-- Resultados da Busca -->
                 <div id="lookup-results" style="display:none; margin-top: 20px;"></div>

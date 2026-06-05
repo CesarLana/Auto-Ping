@@ -504,130 +504,60 @@ document.getElementById("lookup-input").addEventListener("input", (e) => {
     clearTimeout(lookupTimeout);
     lookupTimeout = setTimeout(() => {
         const query = e.target.value.trim();
-        const dashWidgets = document.getElementById("dash-widgets");
         if (query.length > 0) {
-            if (dashWidgets) dashWidgets.style.display = "none";
-            lookupUser(query);
+            lookupUserSuggestions(query);
         } else {
+            closeLookupDropdown();
+            // Restaura o estado original do dashboard
+            const dashWidgets = document.getElementById("dash-widgets");
             if (dashWidgets) dashWidgets.style.display = "grid";
             document.getElementById("lookup-results").style.display = "none";
             document.getElementById("lookup-empty").style.display = "none";
         }
-    }, 400);
+    }, 300);
 });
 
-async function lookupUser(query) {
-    const resultsDiv = document.getElementById("lookup-results");
-    const emptyDiv = document.getElementById("lookup-empty");
-
-    if (!query) {
-        resultsDiv.style.display = "none";
-        emptyDiv.style.display = "flex";
-        return;
+// Fecha o dropdown se clicar fora dele ou do input
+document.addEventListener("click", (e) => {
+    const dropdown = document.getElementById("lookup-dropdown");
+    const input = document.getElementById("lookup-input");
+    if (dropdown && !dropdown.contains(e.target) && e.target !== input) {
+        closeLookupDropdown();
     }
+});
 
+async function lookupUserSuggestions(query) {
+    const dropdown = document.getElementById("lookup-dropdown");
+    if (!dropdown) return;
+    
     try {
         const res = await fetch(`/usuarios?busca=${encodeURIComponent(query)}`);
         const users = await res.json();
-
+        
         if (users.length === 0) {
-            resultsDiv.style.display = "none";
-            emptyDiv.style.display = "block";
-            emptyDiv.textContent = `Nenhum colaborador encontrado para "${query}".`;
+            dropdown.innerHTML = '<div style="padding: 12px 16px; color: var(--text-muted); font-size: 0.85rem; text-align: center;">Nenhum colaborador encontrado</div>';
+            dropdown.style.display = "block";
             return;
         }
-
-        emptyDiv.style.display = "none";
-        resultsDiv.style.display = "block";
-
-        // Adiciona aos recentes apenas se houver correspondência exata de RACF, Funcional ou Nome,
-        // ou se a busca resultou em exatamente 1 registro e a consulta possui 3 ou mais caracteres.
-        const queryLower = query.toLowerCase();
-        const exactMatch = users.find(u => 
-            (u.RACF && u.RACF.toLowerCase() === queryLower) || 
-            (u.Funcional && u.Funcional.toLowerCase() === queryLower) || 
-            (u.Nome && u.Nome.toLowerCase() === queryLower)
-        );
-        if (exactMatch) {
-            addRecent(exactMatch.ID);
-            loadDashboard();
-        } else if (users.length === 1 && query.length >= 3) {
-            addRecent(users[0].ID);
-            loadDashboard();
-        }
-
-        const favs = getFavorites();
-
-        resultsDiv.innerHTML = users.map((u) => `
-            <div class="lookup-card" id="lookup-card-${u.ID}">
-                <div class="lookup-card-header">
-                    <div class="lookup-card-title-row">
-                        <div style="display:flex; align-items:center; gap:16px;">
-                            <div class="lookup-avatar">${u.Nome.charAt(0).toUpperCase()}</div>
-                            <div class="lookup-info">
-                                <span class="lookup-name">${u.Nome}</span>
-                                <span class="lookup-meta">RACF: <strong>${u.RACF || "-"}</strong> &nbsp;|&nbsp; Funcional: <strong>${u.Funcional || "-"}</strong></span>
-                            </div>
-                        </div>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <button class="btn-icon" title="Editar Colaborador" onclick="editUser(${u.ID})" style="background:transparent; border-color:var(--border); width:32px; height:32px;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                </svg>
-                            </button>
-                            <button id="fav-btn-${u.ID}" class="btn-favorite ${favs.includes(u.ID) ? 'active' : ''}" onclick="toggleFavorite(${u.ID})" title="Favoritar">
-                                ${favs.includes(u.ID) 
-                                    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
-                                    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'}
-                            </button>
-                        </div>
-                    </div>
-                    <span class="badge badge-${(u.Status || 'ativo').toLowerCase()}"><span class="badge-dot"></span>${u.Status || 'Ativo'}</span>
-                </div>
-                <div class="lookup-card-body">
-                    <div class="lookup-field">
-                        <span class="lookup-label">Serial</span>
-                        <span class="lookup-value mono">${u.Serial || '—'}</span>
-                    </div>
-                    <div class="lookup-field">
-                        <span class="lookup-label">Hostname</span>
-                        <span class="lookup-value mono">${u.Hostname || '—'}</span>
-                    </div>
-                    <div class="lookup-field">
-                        <span class="lookup-label">IP Cadastrado</span>
-                        <span class="lookup-value mono">${u.IP || '—'}</span>
-                    </div>
-                    <div class="lookup-field">
-                        <span class="lookup-label">IP Atual</span>
-                        <span class="lookup-value mono lookup-live-ip" id="live-ip-${u.ID}">
-                            <span class="spinner"></span> Verificando...
-                        </span>
-                    </div>
-                    <div class="lookup-field">
-                        <span class="lookup-label">Status da Máquina</span>
-                        <span class="lookup-value" id="live-status-${u.ID}">
-                            <span class="spinner"></span> Verificando...
-                        </span>
-                    </div>
-                </div>
+        
+        dropdown.innerHTML = users.map((u) => `
+            <div class="lookup-dropdown-item" onclick="selectUserForLookup(${u.ID}, '${u.RACF || u.Nome}'); closeLookupDropdown();">
+                <span class="lookup-dropdown-name">${u.Nome}</span>
+                <span class="lookup-dropdown-meta">RACF: ${u.RACF || "-"} | Host: ${u.Hostname || "-"}</span>
             </div>
         `).join("");
-
-        // Auto-ping cada resultado que tem hostname
-        users.forEach((u) => {
-            if (u.Hostname && u.Hostname !== "") {
-                autoPing(u.ID, u.Hostname);
-            } else {
-                const ipEl = document.getElementById(`live-ip-${u.ID}`);
-                const statusEl = document.getElementById(`live-status-${u.ID}`);
-                if (ipEl) ipEl.textContent = "Sem hostname";
-                if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Sem hostname cadastrado</span>';
-            }
-        });
-
+        dropdown.style.display = "block";
+        
     } catch {
-        showToast("Erro ao buscar colaborador.", "error");
+        dropdown.innerHTML = '<div style="padding: 12px 16px; color: var(--red); font-size: 0.85rem; text-align: center;">Erro ao carregar sugestões</div>';
+        dropdown.style.display = "block";
+    }
+}
+
+function closeLookupDropdown() {
+    const dropdown = document.getElementById("lookup-dropdown");
+    if (dropdown) {
+        dropdown.style.display = "none";
     }
 }
 
