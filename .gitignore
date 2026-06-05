@@ -4,3 +4,7 @@ __pycache__/
 
 # Ignorar banco de dados local para não subir dados reais de usuários no repositório público
 usuarios.xlsx
+
+# Ignorar testes
+test_app.py
+.pytest_cache/
