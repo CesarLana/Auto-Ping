@@ -169,7 +169,7 @@ def ping_host(hostname):
 
     try:
         result = subprocess.run(
-            ["ping", "-n", "1", "-w", "3000", hostname],
+            ["ping", "-4", "-n", "1", "-w", "3000", hostname],
             capture_output=True,
             text=True,
             timeout=10,
@@ -177,16 +177,11 @@ def ping_host(hostname):
 
         output = result.stdout
 
-        # Tenta pegar qualquer endereço dentro de colchetes (IPv4 ou IPv6)
-        match = re.search(r'\[(.*?)\]', output)
-        if not match:
-            # Fallback caso a resposta não use colchetes
-            match = re.search(r'([a-fA-F0-9:\.]+%?\d*)', output.split('Resposta de')[-1] if 'Resposta de' in output else '')
-            if not match or not match.group(1).strip():
-                 match = re.search(r'(\d+\.\d+\.\d+\.\d+)', output)
+        # Pega especificamente um padrão IPv4 (x.x.x.x)
+        match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', output)
 
         if match:
-            ip = match.group(1).strip().rstrip(':')
+            ip = match.group(1)
             online = "Resposta de" in output or "Reply from" in output
             return jsonify({
                 "hostname": hostname,
