@@ -56,34 +56,46 @@ def cadastrar():
     # Rota que recebe os dados do frontend em formato JSON
     dados = request.get_json()
 
-    # Validação de campos obrigatórios
-    for campo in ["RACF", "Funcional", "Nome"]:
-        if not dados.get(campo):
+    # Validação de campos obrigatórios — TODOS os campos são obrigatórios
+    for campo in ["RACF", "Funcional", "Nome", "Email", "Serial", "Hostname"]:
+        if not str(dados.get(campo, "")).strip():
             return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
+
+    racf_req = str(dados["RACF"]).strip().upper()
+    func_req = str(dados["Funcional"]).strip()
+    email_req = str(dados["Email"]).strip().lower()
+    hostname_req = str(dados["Hostname"]).strip().upper()
+
+    # Validação do RACF: máximo de 7 caracteres
+    if len(racf_req) > 7:
+        return jsonify({"erro": "O campo RACF deve ter no máximo 7 caracteres."}), 400
+
+    # Validação do Funcional: apenas números, máximo de 9 dígitos
+    if not re.match(r'^\d{1,9}$', func_req):
+        return jsonify({"erro": "O campo Funcional deve conter apenas números (máx. 9 dígitos)."}), 400
 
     df = read_excel()
 
-    racf_req = str(dados.get("RACF", "")).strip().upper()
-    func_req = str(dados.get("Funcional", "")).strip()
-    email_req = str(dados.get("Email", "")).strip().lower()
-
+    # Verificação de duplicatas (case-insensitive)
     if not df.empty:
-        if racf_req and racf_req in df["RACF"].astype(str).str.strip().str.upper().values:
+        if racf_req in df["RACF"].astype(str).str.strip().str.upper().values:
             return jsonify({"erro": "Já existe um usuário cadastrado com este RACF."}), 409
-        if func_req and func_req in df["Funcional"].astype(str).str.strip().values:
+        if func_req in df["Funcional"].astype(str).str.strip().values:
             return jsonify({"erro": "Já existe um usuário cadastrado com esta Funcional."}), 409
         if email_req and email_req in df["Email"].astype(str).str.strip().str.lower().values:
             return jsonify({"erro": "Já existe um usuário cadastrado com este E-mail."}), 409
+        if hostname_req in df["Hostname"].astype(str).str.strip().str.upper().values:
+            return jsonify({"erro": "Já existe um usuário cadastrado com este Hostname."}), 409
 
     novo = {
         "ID": next_id(),
-        "RACF": dados["RACF"].upper(),
-        "Funcional": dados["Funcional"],
-        "Nome": dados.get("Nome", ""),
-        "Email": dados.get("Email", ""),
-        "Serial": dados.get("Serial", ""),
-        "Hostname": dados.get("Hostname", ""),
-        "IP": dados.get("IP", ""),
+        "RACF": racf_req,
+        "Funcional": func_req,
+        "Nome": dados["Nome"].strip(),
+        "Email": dados["Email"].strip(),
+        "Serial": dados["Serial"].strip(),
+        "Hostname": dados["Hostname"].strip(),
+        "IP": str(dados.get("IP", "")).strip(),
         "Status": dados.get("Status", "Ativo"),
     }
 
@@ -132,12 +144,28 @@ def editar(user_id):
     if idx.empty:
         return jsonify({"erro": "Usuário não encontrado."}), 404
 
-    outros_df = df[df["ID"] != user_id]
+    # Validação de campos obrigatórios — TODOS os campos são obrigatórios na edição
+    for campo in ["RACF", "Funcional", "Nome", "Email", "Serial", "Hostname"]:
+        if campo in dados and not str(dados[campo]).strip():
+            return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
 
     racf_req = str(dados.get("RACF", "")).strip().upper() if "RACF" in dados else ""
     func_req = str(dados.get("Funcional", "")).strip() if "Funcional" in dados else ""
     email_req = str(dados.get("Email", "")).strip().lower() if "Email" in dados else ""
+    hostname_req = str(dados.get("Hostname", "")).strip().upper() if "Hostname" in dados else ""
 
+    # Validação do RACF: máximo de 7 caracteres
+    if racf_req and len(racf_req) > 7:
+        return jsonify({"erro": "O campo RACF deve ter no máximo 7 caracteres."}), 400
+
+    # Validação do Funcional: apenas números, máximo de 9 dígitos
+    if func_req and not re.match(r'^\d{1,9}$', func_req):
+        return jsonify({"erro": "O campo Funcional deve conter apenas números (máx. 9 dígitos)."}), 400
+
+    # Exclui o registro atual da verificação de duplicatas
+    outros_df = df[df["ID"] != user_id]
+
+    # Verificação de duplicatas (case-insensitive), excluindo o próprio registro
     if not outros_df.empty:
         if racf_req and racf_req in outros_df["RACF"].astype(str).str.strip().str.upper().values:
             return jsonify({"erro": "Já existe outro usuário cadastrado com este RACF."}), 409
@@ -145,12 +173,14 @@ def editar(user_id):
             return jsonify({"erro": "Já existe outro usuário cadastrado com esta Funcional."}), 409
         if email_req and email_req in outros_df["Email"].astype(str).str.strip().str.lower().values:
             return jsonify({"erro": "Já existe outro usuário cadastrado com este E-mail."}), 409
+        if hostname_req and hostname_req in outros_df["Hostname"].astype(str).str.strip().str.upper().values:
+            return jsonify({"erro": "Já existe outro usuário cadastrado com este Hostname."}), 409
 
     # Atualiza apenas os campos enviados
     i = idx[0]
     for campo in ["RACF", "Funcional", "Nome", "Email", "Serial", "Hostname", "IP", "Status"]:
         if campo in dados:
-            valor = dados[campo]
+            valor = str(dados[campo]).strip()
             if campo == "RACF" and valor:
                 valor = valor.upper()
             df.at[i, campo] = valor
@@ -177,8 +207,8 @@ def excluir(user_id):
 
 @app.route("/ping/<hostname>", methods=["GET"])
 def ping_host(hostname):
-    # Proteção de segurança: apenas letras, números, hífens e pontos
-    if not re.match(r'^[a-zA-Z0-9\-\.]+$', hostname):
+    # Proteção de segurança: apenas letras, números, hífens, pontos e underscores
+    if not re.match(r'^[a-zA-Z0-9\-\._]+$', hostname):
         return jsonify({"erro": "Hostname inválido."}), 400
 
     try:
