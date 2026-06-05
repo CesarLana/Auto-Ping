@@ -2,6 +2,7 @@ import os
 import subprocess
 import re
 import shutil
+import platform
 from flask import Flask, request, jsonify, send_from_directory
 import pandas as pd
 
@@ -247,10 +248,17 @@ def ping_host(hostname):
         return jsonify({"erro": "Hostname inválido."}), 400
 
     try:
-        # Dispara comando no Windows:
-        # ping -4 (apenas IPv4) -n 1 (1 pacote) -w 3000 (espera até 3s)
+        # Verifica o sistema operacional para rodar o comando correto
+        system_name = platform.system()
+        if system_name == "Windows":
+            # Comando no Windows: -4 (IPv4), -n 1 (1 pacote), -w 3000 (3s timeout)
+            cmd = ["ping", "-4", "-n", "1", "-w", "3000", hostname]
+        else:
+            # Comando no macOS / Linux: -c 1 (1 pacote), -W 3000 (3s timeout)
+            cmd = ["ping", "-c", "1", "-W", "3000", hostname]
+
         result = subprocess.run(
-            ["ping", "-4", "-n", "1", "-w", "3000", hostname],
+            cmd,
             capture_output=True,
             text=True,
             timeout=10,
@@ -258,10 +266,11 @@ def ping_host(hostname):
 
         output = result.stdout
 
-        # Tenta capturar primeiro o IP do destinatário contido entre colchetes (ex: "Disparando BRA-PC [10.0.0.5]...")
-        # para evitar pegar o IP do gateway/roteador em caso de erro "Host de destino inacessível"
+        # Tenta capturar primeiro o IP do destinatário contido entre colchetes/parênteses
+        # Windows: "Disparando BRA-PC [10.0.0.5]..."
+        # macOS/Linux: "PING BRA-PC (10.0.0.5)..."
         ip = None
-        first_line_match = re.search(r'\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]', output)
+        first_line_match = re.search(r'[\[\(](\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[\]\)]', output)
         if first_line_match:
             ip = first_line_match.group(1)
         else:
