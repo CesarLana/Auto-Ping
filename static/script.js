@@ -195,18 +195,12 @@ async function loadDashboard() {
         const res = await fetch("/usuarios");
         const users = await res.json();
         const total = users.length;
-        const ativos = users.filter((u) => u.Status === "Ativo").length;
-        const inativos = total - ativos;
         const maquinas = users.filter((u) => u.Hostname && u.Hostname !== "").length;
 
         const statTotal = document.getElementById("stat-total");
-        const statAtivos = document.getElementById("stat-ativos");
-        const statInativos = document.getElementById("stat-inativos");
         const statMaquinas = document.getElementById("stat-maquinas");
 
         if (statTotal) statTotal.textContent = total;
-        if (statAtivos) statAtivos.textContent = ativos;
-        if (statInativos) statInativos.textContent = inativos;
         if (statMaquinas) statMaquinas.textContent = maquinas;
 
         renderDashboardLists(users);
