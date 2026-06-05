@@ -236,7 +236,7 @@ function renderDashboardLists(allUsers) {
     const recList = document.getElementById("recents-list");
 
     const renderMiniCard = (u) => `
-        <div class="mini-card" onclick="document.getElementById('lookup-input').value = '${u.RACF || u.Nome}'; document.getElementById('lookup-input').dispatchEvent(new Event('input'));">
+        <div class="mini-card" onclick="selectUserForLookup(${u.ID}, '${u.RACF || u.Nome}')">
             <div class="mini-card-info">
                 <span class="mini-card-name">${u.Nome}</span>
                 <span class="mini-card-meta">RACF: ${u.RACF || "-"} | Host: ${u.Hostname || "-"}</span>
@@ -628,6 +628,107 @@ async function lookupUser(query) {
 
     } catch {
         showToast("Erro ao buscar colaborador.", "error");
+    }
+}
+
+async function selectUserForLookup(userId, userDisplayValue) {
+    const input = document.getElementById('lookup-input');
+    input.value = userDisplayValue;
+    
+    const dashWidgets = document.getElementById("dash-widgets");
+    if (dashWidgets) dashWidgets.style.display = "none";
+    
+    const resultsDiv = document.getElementById("lookup-results");
+    const emptyDiv = document.getElementById("lookup-empty");
+    resultsDiv.style.display = "block";
+    emptyDiv.style.display = "none";
+    resultsDiv.innerHTML = `<div style="text-align: center; padding: 20px;"><span class="spinner"></span> Carregando colaborador...</div>`;
+    
+    try {
+        const res = await fetch(`/usuarios/${userId}`);
+        const user = await res.json();
+        
+        if (!res.ok) {
+            resultsDiv.style.display = "none";
+            emptyDiv.style.display = "block";
+            emptyDiv.textContent = user.erro || "Colaborador não encontrado.";
+            return;
+        }
+        
+        addRecent(user.ID);
+        
+        const favs = getFavorites();
+        resultsDiv.innerHTML = `
+            <div class="lookup-card" id="lookup-card-${user.ID}">
+                <div class="lookup-card-header">
+                    <div class="lookup-card-title-row">
+                        <div style="display:flex; align-items:center; gap:16px;">
+                            <div class="lookup-avatar">${user.Nome.charAt(0).toUpperCase()}</div>
+                            <div class="lookup-info">
+                                <span class="lookup-name">${user.Nome}</span>
+                                <span class="lookup-meta">RACF: <strong>${user.RACF || "-"}</strong> &nbsp;|&nbsp; Funcional: <strong>${user.Funcional || "-"}</strong></span>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <button class="btn-icon" title="Editar Colaborador" onclick="editUser(${user.ID})" style="background:transparent; border-color:var(--border); width:32px; height:32px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                            </button>
+                            <button id="fav-btn-${user.ID}" class="btn-favorite ${favs.includes(user.ID) ? 'active' : ''}" onclick="toggleFavorite(${user.ID})" title="Favoritar">
+                                ${favs.includes(user.ID) 
+                                    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
+                                    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'}
+                            </button>
+                        </div>
+                    </div>
+                    <span class="badge badge-${(user.Status || 'ativo').toLowerCase()}"><span class="badge-dot"></span>${user.Status || 'Ativo'}</span>
+                </div>
+                <div class="lookup-card-body">
+                    <div class="lookup-field">
+                        <span class="lookup-label">Serial</span>
+                        <span class="lookup-value mono">${user.Serial || '—'}</span>
+                    </div>
+                    <div class="lookup-field">
+                        <span class="lookup-label">Hostname</span>
+                        <span class="lookup-value mono">${user.Hostname || '—'}</span>
+                    </div>
+                    <div class="lookup-field">
+                        <span class="lookup-label">IP Cadastrado</span>
+                        <span class="lookup-value mono">${user.IP || '—'}</span>
+                    </div>
+                    <div class="lookup-field">
+                        <span class="lookup-label">IP Atual</span>
+                        <span class="lookup-value mono lookup-live-ip" id="live-ip-${user.ID}">
+                            <span class="spinner"></span> Verificando...
+                        </span>
+                    </div>
+                    <div class="lookup-field">
+                        <span class="lookup-label">Status da Máquina</span>
+                        <span class="lookup-value" id="live-status-${user.ID}">
+                            <span class="spinner"></span> Verificando...
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        if (user.Hostname && user.Hostname !== "") {
+            autoPing(user.ID, user.Hostname);
+        } else {
+            const ipEl = document.getElementById(`live-ip-${user.ID}`);
+            const statusEl = document.getElementById(`live-status-${user.ID}`);
+            if (ipEl) ipEl.textContent = "Sem hostname";
+            if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Sem hostname cadastrado</span>';
+        }
+        
+        loadDashboard();
+        
+    } catch {
+        resultsDiv.style.display = "none";
+        emptyDiv.style.display = "block";
+        emptyDiv.textContent = "Erro ao carregar colaborador.";
     }
 }
 
