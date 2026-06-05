@@ -44,14 +44,14 @@ function toggleTheme() {
     const newTheme = currentTheme === "dark" ? "light" : "dark";
     
     document.documentElement.setAttribute("data-theme", newTheme);
-    localStorage.setItem("magicalBorg_theme", newTheme);
+    localStorage.setItem("autoPing_theme", newTheme);
     
     const label = document.getElementById("theme-label");
     if (label) label.textContent = newTheme === "dark" ? "Modo Claro" : "Modo Escuro";
 }
 
 function initTheme() {
-    const savedTheme = localStorage.getItem("magicalBorg_theme");
+    const savedTheme = localStorage.getItem("autoPing_theme");
     if (savedTheme === "dark") {
         document.documentElement.setAttribute("data-theme", "dark");
         const label = document.getElementById("theme-label");
@@ -70,11 +70,11 @@ function copyToClipboard(text) {
 
 // ─── FAVORITOS E RECENTES (LOCALSTORAGE) ───────────────────────
 function getFavorites() {
-    return JSON.parse(localStorage.getItem('magicalBorg_favorites')) || [];
+    return JSON.parse(localStorage.getItem('autoPing_favorites')) || [];
 }
 
 function getRecents() {
-    return JSON.parse(localStorage.getItem('magicalBorg_recents')) || [];
+    return JSON.parse(localStorage.getItem('autoPing_recents')) || [];
 }
 
 function toggleFavorite(userId) {
@@ -86,7 +86,7 @@ function toggleFavorite(userId) {
         favs.push(userId);
         showToast("Adicionado aos favoritos", "success");
     }
-    localStorage.setItem('magicalBorg_favorites', JSON.stringify(favs));
+    localStorage.setItem('autoPing_favorites', JSON.stringify(favs));
     
     // Atualiza a interface se estiver na tela de dashboard
     if (document.getElementById("view-dashboard").classList.contains("active")) {
@@ -108,7 +108,7 @@ function addRecent(userId) {
     recents = recents.filter(id => id !== userId); // remove se já existir
     recents.unshift(userId); // adiciona no topo
     if (recents.length > 5) recents.pop(); // mantém apenas os 5 últimos
-    localStorage.setItem('magicalBorg_recents', JSON.stringify(recents));
+    localStorage.setItem('autoPing_recents', JSON.stringify(recents));
 }
 
 // ─── MODAL ─────────────────────────────────────────────────────
@@ -256,6 +256,93 @@ function renderDashboardLists(allUsers) {
     recList.innerHTML = recUsers.length > 0 ? recUsers.map(renderMiniCard).join("") : '<div style="color:var(--text-muted); font-size: 0.85rem; padding: 8px;">Nenhuma busca recente.</div>';
 }
 
+// ─── PAGINAÇÃO ────────────────────────────────────────────────
+const USERS_PER_PAGE = 15;
+let currentPage = 1;
+let allUsersCache = [];
+
+function renderPagination(totalUsers) {
+    const totalPages = Math.ceil(totalUsers / USERS_PER_PAGE);
+    const container = document.getElementById("pagination-controls");
+    if (!container) return;
+
+    if (totalPages <= 1) {
+        container.innerHTML = "";
+        return;
+    }
+
+    let html = '<div class="pagination">';
+
+    // Botão Anterior
+    html += `<button class="btn-page ${currentPage === 1 ? 'disabled' : ''}" 
+        ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">
+        ← Anterior
+    </button>`;
+
+    // Números das páginas
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+            html += `<button class="btn-page ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+        } else if (i === currentPage - 2 || i === currentPage + 2) {
+            html += '<span class="page-dots">...</span>';
+        }
+    }
+
+    // Botão Próximo
+    html += `<button class="btn-page ${currentPage === totalPages ? 'disabled' : ''}" 
+        ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">
+        Próximo →
+    </button>`;
+
+    html += '</div>';
+    html += `<span class="pagination-info">${totalUsers} registro${totalUsers !== 1 ? 's' : ''} — Página ${currentPage} de ${totalPages}</span>`;
+    container.innerHTML = html;
+}
+
+function goToPage(page) {
+    const totalPages = Math.ceil(allUsersCache.length / USERS_PER_PAGE);
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    renderUsersPage();
+}
+
+function renderUsersPage() {
+    const start = (currentPage - 1) * USERS_PER_PAGE;
+    const end = start + USERS_PER_PAGE;
+    const pageUsers = allUsersCache.slice(start, end);
+
+    const tbody = document.getElementById("users-table-body");
+    tbody.innerHTML = pageUsers.map((u) => `
+        <tr>
+            <td><span class="mono">${u.RACF || "—"}</span></td>
+            <td><span class="mono">${u.Funcional || "—"}</span></td>
+            <td>${u.Nome || "—"}</td>
+            <td><span class="mono">${u.Serial || "—"}</span></td>
+            <td><span class="mono">${u.Hostname || "—"}</span></td>
+            <td><span class="mono">${u.IP || "—"}</span></td>
+            <td><span class="badge badge-${(u.Status || "ativo").toLowerCase()}"><span class="badge-dot"></span>${u.Status || "Ativo"}</span></td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn-icon" title="Editar" onclick="editUser(${u.ID})">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                    </button>
+                    <button class="btn-icon delete" title="Excluir" onclick="openModal(${u.ID})">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join("");
+
+    renderPagination(allUsersCache.length);
+}
+
 // ─── LISTAR USUÁRIOS ───────────────────────────────────────────
 async function loadUsers(query = "") {
     try {
@@ -263,39 +350,18 @@ async function loadUsers(query = "") {
         const res = await fetch(url);
         const users = await res.json();
 
+        allUsersCache = users;
+        currentPage = 1;
+
         const tbody = document.getElementById("users-table-body");
         if (users.length === 0) {
             tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Nenhum usuário encontrado.</td></tr>';
+            const pag = document.getElementById("pagination-controls");
+            if (pag) pag.innerHTML = "";
             return;
         }
 
-        tbody.innerHTML = users.map((u) => `
-            <tr>
-                <td><span class="mono">${u.RACF || "—"}</span></td>
-                <td><span class="mono">${u.Funcional || "—"}</span></td>
-                <td>${u.Nome || "—"}</td>
-                <td><span class="mono">${u.Serial || "—"}</span></td>
-                <td><span class="mono">${u.Hostname || "—"}</span></td>
-                <td><span class="mono">${u.IP || "—"}</span></td>
-                <td><span class="badge badge-${(u.Status || "ativo").toLowerCase()}"><span class="badge-dot"></span>${u.Status || "Ativo"}</span></td>
-                <td>
-                    <div class="action-buttons">
-                        <button class="btn-icon" title="Editar" onclick="editUser(${u.ID})">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                            </svg>
-                        </button>
-                        <button class="btn-icon delete" title="Excluir" onclick="openModal(${u.ID})">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `).join("");
+        renderUsersPage();
     } catch {
         showToast("Erro ao carregar a lista de usuários.", "error");
     }
