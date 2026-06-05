@@ -258,35 +258,47 @@ def ping_host(hostname):
 
         output = result.stdout
 
-        # Limpa e separa as linhas do output
-        lines = [line.strip() for line in output.splitlines() if line.strip()]
-        first_line = lines[0] if lines else ""
-
         ip = None
-        if first_line:
-            # 1. Tenta capturar o IP entre colchetes na primeira linha (suporta IPv4 e IPv6)
-            # Ex: "Disparando pc-teste [fe80::1%12]..." ou "Disparando pc-teste [10.0.0.5]..."
-            bracket_match = re.search(r'\[([a-fA-F0-9\.:%]+)\]', first_line)
-            if bracket_match:
-                ip = bracket_match.group(1)
+        
+        # 1. Tenta capturar o IP entre colchetes em qualquer parte do output (padrão de resolução do Windows: Pinging hostname [IP])
+        bracket_match = re.search(r'\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]', output)
+        if bracket_match:
+            ip = bracket_match.group(1)
             
-            # 2. Se não houver colchetes, verifica se o próprio hostname digitado é um IP direto
-            elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname):
-                ip = hostname
-            elif ":" in hostname and re.match(r'^[a-fA-F0-9\.:%]+$', hostname):
-                ip = hostname
+        # 2. Se não houver colchetes, verifica se o próprio hostname digitado é um IP direto
+        elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname):
+            ip = hostname
             
-            # 3. Fallback: extrai qualquer IPv4 ou IPv6 presente APENAS na primeira linha
-            # (para evitar capturar IPs de roteadores que respondem erro na segunda linha)
-            else:
-                ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', first_line)
+        # 3. Busca a linha de inicialização (Disparando/Pinging) e tenta extrair o IP dela
+        else:
+            for line in output.splitlines():
+                line_lower = line.lower()
+                if ("disparando" in line_lower or "pinging" in line_lower or "ping" in line_lower) and not ("resposta" in line_lower or "reply" in line_lower):
+                    ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
+                    if ipv4_match:
+                        ip = ipv4_match.group(1)
+                        break
+                        
+        # 4. Fallback: Busca a linha de estatísticas (ex: "Estatísticas do Ping para 10.50.40.30:")
+        if not ip:
+            for line in output.splitlines():
+                line_lower = line.lower()
+                if "estatí" in line_lower or "estatisticas" in line_lower or "statistics" in line_lower or "estatist" in line_lower:
+                    ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
+                    if ipv4_match:
+                        ip = ipv4_match.group(1)
+                        break
+
+        # 5. Fallback final: extrai qualquer IP do output, desde que a linha NÃO contenha termos de resposta/erro do gateway
+        if not ip:
+            for line in output.splitlines():
+                line_lower = line.lower()
+                if any(x in line_lower for x in ["inacess", "unreach", "resposta de", "reply from", "perda", "lost"]):
+                    continue
+                ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
                 if ipv4_match:
                     ip = ipv4_match.group(1)
-                else:
-                    # Busca IPv6 básico na primeira linha
-                    ipv6_match = re.search(r'([a-fA-F0-9]{1,4}(?::[a-fA-F0-9]{1,4}){2,7})', first_line)
-                    if ipv6_match:
-                        ip = ipv6_match.group(1)
+                    break
 
         if ip:
             # Verifica se o host respondeu de fato analisando a presença de "ttl=" no texto e o returncode
