@@ -1,3 +1,18 @@
+======================================================================
+COMO LOCALIZAR UM USUÁRIO (RACF) NA REDE VIA CMD
+======================================================================
+
+OPÇÃO 1: COMANDO DIRETO DE UMA LINHA (Para copiar e colar direto no CMD)
+----------------------------------------------------------------------
+Copie e cole o comando abaixo no seu CMD (substitua RACF_DO_USUARIO pelo RACF desejado em letras maiúsculas):
+
+wevtutil qe Security /r:%LOGONSERVER:\=% "/q:*[System[(EventID=4624)] and EventData[Data='RACF_DO_USUARIO']]" /f:text /c:1 /rd:true | findstr /i "Endereço Address Ip Estação Workstation"
+
+
+OPÇÃO 2: SCRIPT COMPLETO (.BAT)
+----------------------------------------------------------------------
+Se quiser criar um arquivo "achar.bat" para rodar na pasta, salve o código abaixo com a extensão .bat:
+
 @echo off
 setlocal enabledelayedexpansion
 
