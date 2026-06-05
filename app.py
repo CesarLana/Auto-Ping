@@ -258,17 +258,35 @@ def ping_host(hostname):
 
         output = result.stdout
 
-        # Tenta capturar primeiro o IP do destinatário contido entre colchetes (ex: "Disparando BRA-PC [10.0.0.5]...")
-        # para evitar pegar o IP do gateway/roteador em caso de erro "Host de destino inacessível"
+        # Limpa e separa as linhas do output
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        first_line = lines[0] if lines else ""
+
         ip = None
-        first_line_match = re.search(r'\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]', output)
-        if first_line_match:
-            ip = first_line_match.group(1)
-        else:
-            # Fallback para qualquer IP presente na saída do comando
-            match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', output)
-            if match:
-                ip = match.group(1)
+        if first_line:
+            # 1. Tenta capturar o IP entre colchetes na primeira linha (suporta IPv4 e IPv6)
+            # Ex: "Disparando pc-teste [fe80::1%12]..." ou "Disparando pc-teste [10.0.0.5]..."
+            bracket_match = re.search(r'\[([a-fA-F0-9\.:%]+)\]', first_line)
+            if bracket_match:
+                ip = bracket_match.group(1)
+            
+            # 2. Se não houver colchetes, verifica se o próprio hostname digitado é um IP direto
+            elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname):
+                ip = hostname
+            elif ":" in hostname and re.match(r'^[a-fA-F0-9\.:%]+$', hostname):
+                ip = hostname
+            
+            # 3. Fallback: extrai qualquer IPv4 ou IPv6 presente APENAS na primeira linha
+            # (para evitar capturar IPs de roteadores que respondem erro na segunda linha)
+            else:
+                ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', first_line)
+                if ipv4_match:
+                    ip = ipv4_match.group(1)
+                else:
+                    # Busca IPv6 básico na primeira linha
+                    ipv6_match = re.search(r'([a-fA-F0-9]{1,4}(?::[a-fA-F0-9]{1,4}){2,7})', first_line)
+                    if ipv6_match:
+                        ip = ipv6_match.group(1)
 
         if ip:
             # Verifica se o host respondeu de fato analisando a presença de "ttl=" no texto e o returncode
