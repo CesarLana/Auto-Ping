@@ -112,30 +112,53 @@ function addRecent(userId) {
 }
 
 // ─── MODAL ─────────────────────────────────────────────────────
-function openModal(userId) {
-    deleteTargetId = userId;
+let modalCallback = null;
+
+function openConfirmModal(title, message, confirmText, confirmClass, callback) {
+    document.getElementById("modal-title").textContent = title;
+    document.getElementById("modal-message").textContent = message;
+    
+    const confirmBtn = document.getElementById("btn-confirm-action");
+    confirmBtn.textContent = confirmText;
+    confirmBtn.className = `btn ${confirmClass}`;
+    
+    modalCallback = callback;
     document.getElementById("modal-overlay").classList.add("show");
 }
 
 function closeModal() {
-    deleteTargetId = null;
     document.getElementById("modal-overlay").classList.remove("show");
+    modalCallback = null;
 }
 
-document.getElementById("btn-confirm-delete").addEventListener("click", async () => {
-    if (deleteTargetId === null) return;
-    try {
-        const res = await fetch(`/usuarios/${deleteTargetId}`, { method: "DELETE" });
-        const data = await res.json();
-        if (res.ok) {
-            showToast(data.mensagem, "success");
-            loadUsers();
-            loadDashboard();
-        } else {
-            showToast(data.erro, "error");
+// Mantém openModal por compatibilidade com a tabela de usuários
+function openModal(userId) {
+    openConfirmModal(
+        "Confirmar Exclusão",
+        "Tem certeza que deseja excluir este registro? Esta ação não poderá ser desfeita.",
+        "Excluir",
+        "btn-danger",
+        async () => {
+            try {
+                const res = await fetch(`/usuarios/${userId}`, { method: "DELETE" });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.mensagem, "success");
+                    loadUsers();
+                    loadDashboard();
+                } else {
+                    showToast(data.erro, "error");
+                }
+            } catch {
+                showToast("Erro de conexão com o servidor.", "error");
+            }
         }
-    } catch {
-        showToast("Erro de conexão com o servidor.", "error");
+    );
+}
+
+document.getElementById("btn-confirm-action").addEventListener("click", () => {
+    if (modalCallback) {
+        modalCallback();
     }
     closeModal();
 });
@@ -641,6 +664,21 @@ async function selectUserForLookup(userId, userDisplayValue) {
                         </span>
                     </div>
                 </div>
+                <div class="lookup-card-actions" style="padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 12px; background: rgba(255, 255, 255, 0.01);">
+                    <button class="btn btn-danger" onclick="confirmShutdown(${user.ID}, '${user.Nome}')" style="padding: 8px 16px; font-size: 0.8rem;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:-2px;">
+                            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                            <line x1="12" y1="2" x2="12" y2="12"></line>
+                        </svg>
+                        Desligar Máquina
+                    </button>
+                    <button class="btn btn-secondary" onclick="confirmRestart(${user.ID}, '${user.Nome}')" style="padding: 8px 16px; font-size: 0.8rem; border-color: var(--warning); color: var(--warning); background: transparent;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:-2px;">
+                            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                        </svg>
+                        Reiniciar Máquina
+                    </button>
+                </div>
             </div>
         `;
         
@@ -687,6 +725,110 @@ async function autoPing(userId, hostname) {
         if (ipEl) ipEl.textContent = "Erro";
         if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">Erro na conexão</span>';
     }
+}
+
+// ─── AÇÕES REMOTAS (DESLIGAR / REINICIAR) ──────────────────────
+function getActionTarget(userId) {
+    const card = document.getElementById(`lookup-card-${userId}`);
+    if (!card) return null;
+    
+    // 1. Tenta pegar o IP Atual resolvido ao vivo
+    const liveIpEl = document.getElementById(`live-ip-${userId}`);
+    if (liveIpEl) {
+        const match = liveIpEl.innerText.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+        if (match && match[1]) {
+            return match[1];
+        }
+    }
+    
+    // 2. Se não houver IP ao vivo resolvido, tenta pegar o IP Cadastrado
+    const fields = card.querySelectorAll('.lookup-field');
+    for (let field of fields) {
+        const label = field.querySelector('.lookup-label');
+        const value = field.querySelector('.lookup-value');
+        if (label && value) {
+            const labelText = label.textContent.toLowerCase();
+            if (labelText.includes("ip cadastrado") || labelText.includes("ip")) {
+                const valText = value.textContent.replace(/[^0-9\.]/g, '').trim();
+                if (valText && valText !== "—" && valText !== "") {
+                    return valText;
+                }
+            }
+        }
+    }
+    
+    // 3. Fallback para o Hostname cadastrado
+    for (let field of fields) {
+        const label = field.querySelector('.lookup-label');
+        const value = field.querySelector('.lookup-value');
+        if (label && value) {
+            const labelText = label.textContent.toLowerCase();
+            if (labelText.includes("hostname")) {
+                const valText = value.textContent.trim();
+                if (valText && valText !== "—") {
+                    return valText;
+                }
+            }
+        }
+    }
+    
+    return null;
+}
+
+function confirmShutdown(userId, name) {
+    const target = getActionTarget(userId);
+    if (!target) {
+        showToast("Nenhum IP ou Hostname disponível para enviar o comando.", "error");
+        return;
+    }
+    openConfirmModal(
+        "Confirmar Desligamento",
+        `Tem certeza que deseja DESLIGAR a máquina de ${name}? (Alvo: ${target})`,
+        "Desligar Máquina",
+        "btn-danger",
+        async () => {
+            showToast("Enviando comando de desligamento...", "success");
+            try {
+                const res = await fetch(`/usuarios/desligar/${encodeURIComponent(target)}`, { method: "POST" });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.mensagem, "success");
+                } else {
+                    showToast(data.erro || "Erro ao desligar a máquina.", "error");
+                }
+            } catch {
+                showToast("Erro de conexão com o servidor.", "error");
+            }
+        }
+    );
+}
+
+function confirmRestart(userId, name) {
+    const target = getActionTarget(userId);
+    if (!target) {
+        showToast("Nenhum IP ou Hostname disponível para enviar o comando.", "error");
+        return;
+    }
+    openConfirmModal(
+        "Confirmar Reinicialização",
+        `Tem certeza que deseja REINICIAR a máquina de ${name}? (Alvo: ${target})`,
+        "Reiniciar Máquina",
+        "btn-primary",
+        async () => {
+            showToast("Enviando comando de reinicialização...", "success");
+            try {
+                const res = await fetch(`/usuarios/reiniciar/${encodeURIComponent(target)}`, { method: "POST" });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.mensagem, "success");
+                } else {
+                    showToast(data.erro || "Erro ao reiniciar a máquina.", "error");
+                }
+            } catch {
+                showToast("Erro de conexão com o servidor.", "error");
+            }
+        }
+    );
 }
 
 // ─── INICIALIZAÇÃO ─────────────────────────────────────────────

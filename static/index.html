@@ -306,11 +306,11 @@
 <!-- ─── MODAL DE CONFIRMAÇÃO ────────────────────────────────── -->
 <div id="modal-overlay" class="modal-overlay">
     <div class="modal">
-        <h3>Confirmar Exclusão</h3>
-        <p>Tem certeza que deseja excluir este registro? Esta ação não poderá ser desfeita.</p>
+        <h3 id="modal-title">Confirmar Ação</h3>
+        <p id="modal-message">Tem certeza que deseja prosseguir?</p>
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-            <button class="btn btn-danger" id="btn-confirm-delete">Excluir</button>
+            <button class="btn" id="btn-confirm-action">Confirmar</button>
         </div>
     </div>
 </div>
