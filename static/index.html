@@ -167,13 +167,12 @@
                             <th>RACF</th>
                             <th>Funcional</th>
                             <th>Nome</th>
-                            <th>Hostname</th>
-                            <th>IP</th>
+                            <th>Máquinas</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody id="dashboard-table-body">
-                        <tr><td colspan="6" class="empty-state">Nenhum registro encontrado.</td></tr>
+                        <tr><td colspan="5" class="empty-state">Nenhum registro encontrado.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -208,31 +207,6 @@
                         <label for="email">E-mail Corporativo</label>
                         <input type="email" id="email" placeholder="Ex: joao.silva@empresa.com" required>
                     </div>
-                </div>
-
-                <!-- Seção: Dados da Máquina -->
-                <div class="form-section-title">Dados da Máquina</div>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="serial">Serial da Máquina</label>
-                        <input type="text" id="serial" placeholder="Ex: 5CD1234XYZ">
-                    </div>
-                    <div class="form-group">
-                        <label for="hostname">Hostname</label>
-                        <div class="input-with-action">
-                            <input type="text" id="hostname" placeholder="Ex: BRA-PC-JSILVA" required>
-                            <button type="button" class="btn-ping" id="btn-ping" title="Pingar máquina para descobrir o IP">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                                </svg>
-                                Ping
-                            </button>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="ip">Endereço IP</label>
-                        <input type="text" id="ip" placeholder="Ex: 10.0.0.15 (ou preenchido pelo Ping)">
-                    </div>
                     <div class="form-group">
                         <label for="status">Status</label>
                         <select id="status">
@@ -242,8 +216,21 @@
                     </div>
                 </div>
 
-                <!-- Resultado do Ping -->
-                <div id="ping-result" class="ping-result" style="display:none;"></div>
+                <!-- Seção: Máquinas do Colaborador -->
+                <div class="form-section-title" style="display: flex; justify-content: space-between; align-items: center; margin-top: 30px;">
+                    <span>Máquinas do Colaborador</span>
+                    <button type="button" class="btn btn-secondary" id="btn-add-machine" style="padding: 6px 12px; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 6px; margin: 0; background: var(--bg-hover); border-color: var(--border);">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Adicionar Máquina
+                    </button>
+                </div>
+                
+                <div id="machines-container" style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
+                    <!-- As máquinas cadastradas serão renderizadas aqui dinamicamente -->
+                </div>
 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary" id="btn-submit">
@@ -282,15 +269,13 @@
                             <th>RACF</th>
                             <th>Funcional</th>
                             <th>Nome</th>
-                            <th>Serial</th>
-                            <th>Hostname</th>
-                            <th>IP</th>
+                            <th>Máquinas</th>
                             <th>Status</th>
                             <th>Ações</th>
                         </tr>
                     </thead>
                     <tbody id="users-table-body">
-                        <tr><td colspan="8" class="empty-state">Nenhum usuário encontrado.</td></tr>
+                        <tr><td colspan="6" class="empty-state">Nenhum usuário encontrado.</td></tr>
                     </tbody>
                 </table>
             </div>

@@ -1,5 +1,6 @@
 // ─── ESTADO ────────────────────────────────────────────────────
 let deleteTargetId = null;
+let allUsersCache = [];
 
 // ─── NAVEGAÇÃO ─────────────────────────────────────────────────
 document.querySelectorAll(".nav-item").forEach((item) => {
@@ -88,11 +89,9 @@ function toggleFavorite(userId) {
     }
     localStorage.setItem('autoPing_favorites', JSON.stringify(favs));
     
-    // Atualiza a interface se estiver na tela de dashboard
     if (document.getElementById("view-dashboard").classList.contains("active")) {
         loadDashboard();
         
-        // Atualiza a estrela no lookup se estiver visível
         const btn = document.getElementById(`fav-btn-${userId}`);
         if (btn) {
             btn.classList.toggle("active");
@@ -105,9 +104,9 @@ function toggleFavorite(userId) {
 
 function addRecent(userId) {
     let recents = getRecents();
-    recents = recents.filter(id => id !== userId); // remove se já existir
-    recents.unshift(userId); // adiciona no topo
-    if (recents.length > 5) recents.pop(); // mantém apenas os 5 últimos
+    recents = recents.filter(id => id !== userId);
+    recents.unshift(userId);
+    if (recents.length > 5) recents.pop();
     localStorage.setItem('autoPing_recents', JSON.stringify(recents));
 }
 
@@ -131,7 +130,6 @@ function closeModal() {
     modalCallback = null;
 }
 
-// Mantém openModal por compatibilidade com a tabela de usuários
 function openModal(userId) {
     openConfirmModal(
         "Confirmar Exclusão",
@@ -163,54 +161,144 @@ document.getElementById("btn-confirm-action").addEventListener("click", () => {
     closeModal();
 });
 
-// ─── PING ──────────────────────────────────────────────────────
-document.getElementById("btn-ping").addEventListener("click", async () => {
-    const hostname = document.getElementById("hostname").value.trim();
-    if (!hostname) {
-        showToast("Preencha o hostname antes de pingar.", "error");
-        return;
+// ─── GESTÃO DINÂMICA DE MÁQUINAS NO FORMULÁRIO ──────────────────
+function addMachineField(machineData = null) {
+    const container = document.getElementById("machines-container");
+    if (!container) return;
+
+    const idx = container.children.length + 1;
+    const card = document.createElement("div");
+    card.className = "machine-item-card";
+    card.innerHTML = `
+        <div class="machine-item-header">
+            <span class="machine-item-title">Máquina #${idx}</span>
+            <button type="button" class="btn-remove-machine" title="Remover esta máquina">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+                Remover
+            </button>
+        </div>
+        <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 0;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>Tipo</label>
+                <select class="machine-tipo">
+                    <option value="Notebook">Notebook</option>
+                    <option value="Desktop">Desktop</option>
+                    <option value="Minidesk">Minidesk</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>Hostname</label>
+                <div class="input-with-action">
+                    <input type="text" class="machine-hostname" placeholder="Ex: BRA-PC-JSILVA" required>
+                    <button type="button" class="btn-ping machine-ping-btn" title="Pingar máquina">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                        </svg>
+                        Ping
+                    </button>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>Serial</label>
+                <input type="text" class="machine-serial" placeholder="Ex: 5CD1234XYZ">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>IP</label>
+                <input type="text" class="machine-ip" placeholder="Ex: 10.0.0.15">
+            </div>
+        </div>
+        <div class="machine-ping-result ping-result" style="display:none; margin-top:8px;"></div>
+    `;
+
+    if (machineData) {
+        card.querySelector(".machine-tipo").value = machineData.Tipo || "Notebook";
+        card.querySelector(".machine-hostname").value = machineData.Hostname || "";
+        card.querySelector(".machine-serial").value = machineData.Serial || "";
+        card.querySelector(".machine-ip").value = machineData.IP || "";
     }
 
-    const btn = document.getElementById("btn-ping");
-    const pingResult = document.getElementById("ping-result");
+    card.querySelector(".btn-remove-machine").addEventListener("click", () => {
+        card.remove();
+        updateMachineTitles();
+    });
 
-    btn.disabled = true;
-    btn.innerHTML = `<span class="spinner"></span> Pingando...`;
-    pingResult.style.display = "none";
+    const pingBtn = card.querySelector(".machine-ping-btn");
+    const hostnameInput = card.querySelector(".machine-hostname");
+    const ipInput = card.querySelector(".machine-ip");
+    const pingResult = card.querySelector(".machine-ping-result");
 
-    try {
-        const res = await fetch(`/ping/${encodeURIComponent(hostname)}`);
-        const data = await res.json();
-
-        if (res.ok) {
-            document.getElementById("ip").value = data.ip;
-            pingResult.style.display = "flex";
-            pingResult.className = `ping-result ${data.online ? "online" : "offline"}`;
-            pingResult.innerHTML = `
-                <span class="ping-dot ${data.online ? "dot-online" : "dot-offline"}"></span>
-                <span><strong>${hostname}</strong> — IP: <strong>${data.ip}</strong> <button type="button" class="btn-copy" onclick="copyToClipboard('${data.ip}')" title="Copiar IP" style="margin-top:-2px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button> — ${data.online ? "Máquina Online" : "Máquina Offline"}</span>
-            `;
-            showToast(`IP resolvido: ${data.ip}`, "success");
-        } else {
-            pingResult.style.display = "flex";
-            pingResult.className = "ping-result offline";
-            pingResult.innerHTML = `
-                <span class="ping-dot dot-offline"></span>
-                <span>${data.erro}</span>
-            `;
-            showToast(data.erro, "error");
+    pingBtn.addEventListener("click", async () => {
+        const hostname = hostnameInput.value.trim();
+        if (!hostname) {
+            showToast("Preencha o hostname antes de pingar.", "error");
+            return;
         }
-    } catch {
-        showToast("Erro ao tentar pingar a máquina.", "error");
-    }
 
-    btn.disabled = false;
-    btn.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-        </svg>
-        Ping`;
+        pingBtn.disabled = true;
+        pingBtn.innerHTML = `<span class="spinner"></span>...`;
+        pingResult.style.display = "none";
+
+        try {
+            const res = await fetch(`/ping/${encodeURIComponent(hostname)}`);
+            const data = await res.json();
+
+            if (res.ok) {
+                ipInput.value = data.ip;
+                pingResult.style.display = "flex";
+                pingResult.className = `ping-result ${data.online ? "online" : "offline"}`;
+                pingResult.innerHTML = `
+                    <span class="ping-dot ${data.online ? "dot-online" : "dot-offline"}"></span>
+                    <span><strong>${hostname}</strong> — IP: <strong>${data.ip}</strong> — ${data.online ? "Online" : "Offline"}</span>
+                `;
+                showToast(`IP resolvido: ${data.ip}`, "success");
+            } else {
+                pingResult.style.display = "flex";
+                pingResult.className = "ping-result offline";
+                pingResult.innerHTML = `
+                    <span class="ping-dot dot-offline"></span>
+                    <span>${data.erro}</span>
+                `;
+                showToast(data.erro, "error");
+            }
+        } catch {
+            showToast("Erro ao tentar pingar a máquina.", "error");
+        }
+
+        pingBtn.disabled = false;
+        pingBtn.innerHTML = `
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+            </svg>
+            Ping`;
+    });
+
+    container.appendChild(card);
+}
+
+function updateMachineTitles() {
+    const container = document.getElementById("machines-container");
+    if (!container) return;
+    Array.from(container.children).forEach((card, idx) => {
+        card.querySelector(".machine-item-title").textContent = `Máquina #${idx + 1}`;
+    });
+}
+
+document.getElementById("btn-add-machine").addEventListener("click", () => {
+    addMachineField();
 });
+
+// Helper para renderizar tags das máquinas nas tabelas
+function renderMachineTags(maquinas) {
+    if (!maquinas || maquinas.length === 0) return '<span style="color:var(--text-muted)">Sem máquinas</span>';
+    return maquinas.map(m => {
+        const typeClass = m.Tipo ? m.Tipo.toLowerCase() : 'notebook';
+        const typeIcon = m.Tipo === 'Desktop' ? '🖥️' : (m.Tipo === 'Minidesk' ? '📟' : '💻');
+        return `<span class="machine-tag ${typeClass}" title="Serial: ${m.Serial || '—'} | IP: ${m.IP || '—'}">${typeIcon} ${m.Hostname}</span>`;
+    }).join("");
+}
 
 // ─── DASHBOARD ─────────────────────────────────────────────────
 async function loadDashboard() {
@@ -218,13 +306,17 @@ async function loadDashboard() {
         const res = await fetch("/usuarios");
         const users = await res.json();
         const total = users.length;
-        const maquinas = users.filter((u) => u.Hostname && u.Hostname !== "").length;
+        
+        let maquinasTotal = 0;
+        users.forEach(u => {
+            if (u.maquinas) maquinasTotal += u.maquinas.length;
+        });
 
         const statTotal = document.getElementById("stat-total");
         const statMaquinas = document.getElementById("stat-maquinas");
 
         if (statTotal) statTotal.textContent = total;
-        if (statMaquinas) statMaquinas.textContent = maquinas;
+        if (statMaquinas) statMaquinas.textContent = maquinasTotal;
 
         renderDashboardLists(users);
 
@@ -232,15 +324,14 @@ async function loadDashboard() {
         if (dbTbody) {
             const lastUsers = users.slice().reverse().slice(0, 5);
             if (lastUsers.length === 0) {
-                dbTbody.innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum registro encontrado.</td></tr>';
+                dbTbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum registro encontrado.</td></tr>';
             } else {
                 dbTbody.innerHTML = lastUsers.map((u) => `
                     <tr>
                         <td><span class="mono">${u.RACF || "—"}</span></td>
                         <td><span class="mono">${u.Funcional || "—"}</span></td>
                         <td>${u.Nome || "—"}</td>
-                        <td><span class="mono">${u.Hostname || "—"}</span></td>
-                        <td><span class="mono">${u.IP || "—"}</span></td>
+                        <td>${renderMachineTags(u.maquinas)}</td>
                         <td><span class="badge badge-${(u.Status || "ativo").toLowerCase()}"><span class="badge-dot"></span>${u.Status || "Ativo"}</span></td>
                     </tr>
                 `).join("");
@@ -258,19 +349,24 @@ function renderDashboardLists(allUsers) {
     const favList = document.getElementById("favorites-list");
     const recList = document.getElementById("recents-list");
 
-    const renderMiniCard = (u) => `
-        <div class="mini-card" onclick="selectUserForLookup(${u.ID}, '${u.RACF || u.Nome}')">
-            <div class="mini-card-info">
-                <span class="mini-card-name">${u.Nome}</span>
-                <span class="mini-card-meta">RACF: ${u.RACF || "-"} | Host: ${u.Hostname || "-"}</span>
+    const renderMiniCard = (u) => {
+        const hostsText = u.maquinas && u.maquinas.length > 0 
+            ? u.maquinas.map(m => m.Hostname).join(", ") 
+            : "Sem máquinas";
+        return `
+            <div class="mini-card" onclick="selectUserForLookup(${u.ID}, '${u.RACF || u.Nome}')">
+                <div class="mini-card-info">
+                    <span class="mini-card-name">${u.Nome}</span>
+                    <span class="mini-card-meta">RACF: ${u.RACF || "-"} | Maqs: ${hostsText}</span>
+                </div>
+                <button class="btn-favorite ${favIds.includes(u.ID) ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite(${u.ID})" title="Favoritar">
+                    ${favIds.includes(u.ID) 
+                        ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
+                        : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'}
+                </button>
             </div>
-            <button class="btn-favorite ${favIds.includes(u.ID) ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite(${u.ID})" title="Favoritar">
-                ${favIds.includes(u.ID) 
-                    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
-                    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'}
-            </button>
-        </div>
-    `;
+        `;
+    };
 
     const favUsers = favIds.map(id => allUsers.find(u => u.ID === id)).filter(Boolean);
     const recUsers = recentIds.map(id => allUsers.find(u => u.ID === id)).filter(Boolean);
@@ -282,7 +378,6 @@ function renderDashboardLists(allUsers) {
 // ─── PAGINAÇÃO ────────────────────────────────────────────────
 const USERS_PER_PAGE = 15;
 let currentPage = 1;
-let allUsersCache = [];
 
 function renderPagination(totalUsers) {
     const totalPages = Math.ceil(totalUsers / USERS_PER_PAGE);
@@ -295,8 +390,6 @@ function renderPagination(totalUsers) {
     }
 
     let html = '<div class="pagination">';
-
-    // Botão Anterior
     html += `<button class="btn-page ${currentPage === 1 ? 'disabled' : ''}" 
         ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">
         ← Anterior
@@ -308,10 +401,7 @@ function renderPagination(totalUsers) {
             html += `<button class="btn-page ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
         }
     } else {
-        // Sempre mostra a primeira página
         html += `<button class="btn-page ${1 === currentPage ? 'active' : ''}" onclick="goToPage(1)">1</button>`;
-        
-        // Determina o intervalo de páginas do meio
         let start = Math.max(2, currentPage - 1);
         let end = Math.min(totalPages - 1, currentPage + 1);
         
@@ -321,26 +411,18 @@ function renderPagination(totalUsers) {
             start = totalPages - 3;
         }
         
-        // Mostra reticências antes se necessário
         if (start > 2) {
             html += '<span class="page-dots">...</span>';
         }
-        
-        // Mostra as páginas do meio
         for (let i = start; i <= end; i++) {
             html += `<button class="btn-page ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
         }
-        
-        // Mostra reticências depois se necessário
         if (end < totalPages - 1) {
             html += '<span class="page-dots">...</span>';
         }
-        
-        // Sempre mostra a última página
         html += `<button class="btn-page ${totalPages === currentPage ? 'active' : ''}" onclick="goToPage(${totalPages})">${totalPages}</button>`;
     }
 
-    // Botão Próximo
     html += `<button class="btn-page ${currentPage === totalPages ? 'disabled' : ''}" 
         ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">
         Próximo →
@@ -369,9 +451,7 @@ function renderUsersPage() {
             <td><span class="mono">${u.RACF || "—"}</span></td>
             <td><span class="mono">${u.Funcional || "—"}</span></td>
             <td>${u.Nome || "—"}</td>
-            <td><span class="mono">${u.Serial || "—"}</span></td>
-            <td><span class="mono">${u.Hostname || "—"}</span></td>
-            <td><span class="mono">${u.IP || "—"}</span></td>
+            <td>${renderMachineTags(u.maquinas)}</td>
             <td><span class="badge badge-${(u.Status || "ativo").toLowerCase()}"><span class="badge-dot"></span>${u.Status || "Ativo"}</span></td>
             <td>
                 <div class="action-buttons">
@@ -407,7 +487,7 @@ async function loadUsers(query = "") {
 
         const tbody = document.getElementById("users-table-body");
         if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Nenhum usuário encontrado.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum usuário encontrado.</td></tr>';
             const pag = document.getElementById("pagination-controls");
             if (pag) pag.innerHTML = "";
             return;
@@ -429,15 +509,30 @@ document.getElementById("search-input").addEventListener("input", (e) => {
 document.getElementById("user-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const editId = document.getElementById("edit-id").value;
+    
+    // Coleta dados das máquinas dinamicamente
+    const machines = [];
+    const container = document.getElementById("machines-container");
+    if (container) {
+        Array.from(container.children).forEach(card => {
+            const tipo = card.querySelector(".machine-tipo").value;
+            const hostname = card.querySelector(".machine-hostname").value.trim();
+            const serial = card.querySelector(".machine-serial").value.trim();
+            const ip = card.querySelector(".machine-ip").value.trim();
+            
+            if (hostname) {
+                machines.push({ Tipo: tipo, Hostname: hostname, Serial: serial, IP: ip });
+            }
+        });
+    }
+
     const payload = {
         RACF: document.getElementById("racf").value.trim(),
         Funcional: document.getElementById("funcional").value.trim(),
         Nome: document.getElementById("nome").value.trim(),
         Email: document.getElementById("email").value.trim(),
-        Serial: document.getElementById("serial").value.trim(),
-        Hostname: document.getElementById("hostname").value.trim(),
-        IP: document.getElementById("ip").value.trim(),
         Status: document.getElementById("status").value,
+        maquinas: machines
     };
 
     try {
@@ -459,8 +554,6 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
         const data = await res.json();
         if (res.ok) {
             showToast(data.mensagem, "success");
-            document.getElementById("user-form").reset();
-            document.getElementById("ping-result").style.display = "none";
             cancelEdit();
         } else {
             showToast(data.erro, "error");
@@ -487,10 +580,17 @@ async function editUser(userId) {
         document.getElementById("funcional").value = user.Funcional || "";
         document.getElementById("nome").value = user.Nome || "";
         document.getElementById("email").value = user.Email || "";
-        document.getElementById("serial").value = user.Serial || "";
-        document.getElementById("hostname").value = user.Hostname || "";
-        document.getElementById("ip").value = user.IP || "";
         document.getElementById("status").value = user.Status || "Ativo";
+
+        const container = document.getElementById("machines-container");
+        if (container) {
+            container.innerHTML = "";
+            if (user.maquinas && user.maquinas.length > 0) {
+                user.maquinas.forEach(maq => addMachineField(maq));
+            } else {
+                addMachineField();
+            }
+        }
 
         document.getElementById("form-title").textContent = "Editar Registro";
         document.getElementById("btn-submit").innerHTML = `
@@ -509,7 +609,13 @@ async function editUser(userId) {
 function cancelEdit() {
     document.getElementById("edit-id").value = "";
     document.getElementById("user-form").reset();
-    document.getElementById("ping-result").style.display = "none";
+    
+    const container = document.getElementById("machines-container");
+    if (container) {
+        container.innerHTML = "";
+        addMachineField();
+    }
+
     document.getElementById("form-title").textContent = "Novo Registro";
     document.getElementById("btn-submit").innerHTML = `
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -531,16 +637,12 @@ document.getElementById("lookup-input").addEventListener("input", (e) => {
             lookupUserSuggestions(query);
         } else {
             closeLookupDropdown();
-            // Restaura o estado original do dashboard
-            const dashWidgets = document.getElementById("dash-widgets");
-            if (dashWidgets) dashWidgets.style.display = "grid";
             document.getElementById("lookup-results").style.display = "none";
             document.getElementById("lookup-empty").style.display = "none";
         }
     }, 300);
 });
 
-// Fecha o dropdown se clicar fora dele ou do input
 document.addEventListener("click", (e) => {
     const dropdown = document.getElementById("lookup-dropdown");
     const input = document.getElementById("lookup-input");
@@ -563,12 +665,15 @@ async function lookupUserSuggestions(query) {
             return;
         }
         
-        dropdown.innerHTML = users.map((u) => `
-            <div class="lookup-dropdown-item" onclick="selectUserForLookup(${u.ID}, '${u.RACF || u.Nome}'); closeLookupDropdown();">
-                <span class="lookup-dropdown-name">${u.Nome}</span>
-                <span class="lookup-dropdown-meta">RACF: ${u.RACF || "-"} | Host: ${u.Hostname || "-"}</span>
-            </div>
-        `).join("");
+        dropdown.innerHTML = users.map((u) => {
+            const hosts = u.maquinas && u.maquinas.length > 0 ? u.maquinas.map(m => m.Hostname).join(", ") : "Sem máquinas";
+            return `
+                <div class="lookup-dropdown-item" onclick="selectUserForLookup(${u.ID}, '${u.RACF || u.Nome}'); closeLookupDropdown();">
+                    <span class="lookup-dropdown-name">${u.Nome}</span>
+                    <span class="lookup-dropdown-meta">RACF: ${u.RACF || "-"} | Maqs: ${hosts}</span>
+                </div>
+            `;
+        }).join("");
         dropdown.style.display = "block";
         
     } catch {
@@ -587,9 +692,6 @@ function closeLookupDropdown() {
 async function selectUserForLookup(userId, userDisplayValue) {
     const input = document.getElementById('lookup-input');
     input.value = userDisplayValue;
-    
-    const dashWidgets = document.getElementById("dash-widgets");
-    if (dashWidgets) dashWidgets.style.display = "none";
     
     const resultsDiv = document.getElementById("lookup-results");
     const emptyDiv = document.getElementById("lookup-empty");
@@ -611,10 +713,65 @@ async function selectUserForLookup(userId, userDisplayValue) {
         addRecent(user.ID);
         
         const favs = getFavorites();
+        let machinesHtml = "";
+        
+        if (user.maquinas && user.maquinas.length > 0) {
+            machinesHtml = user.maquinas.map((m, index) => {
+                const typeIcon = m.Tipo === 'Desktop' ? '🖥️' : (m.Tipo === 'Minidesk' ? '📟' : '💻');
+                return `
+                    <div class="lookup-machine-block" style="border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; background: rgba(255, 255, 255, 0.02); margin-top: 16px;">
+                        <div style="font-weight:600; font-size:0.95rem; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                            <span>${typeIcon} ${m.Tipo}</span>
+                            <span class="mono" style="font-size:0.85rem; padding: 2px 6px; background:var(--bg-hover); border-radius:var(--radius-sm); border:1px solid var(--border);">${m.Hostname}</span>
+                        </div>
+                        <div class="lookup-card-body" style="border:none; padding:0; margin-bottom:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
+                            <div class="lookup-field">
+                                <span class="lookup-label">Serial</span>
+                                <span class="lookup-value mono">${m.Serial || '—'}</span>
+                            </div>
+                            <div class="lookup-field">
+                                <span class="lookup-label">IP Cadastrado</span>
+                                <span class="lookup-value mono">${m.IP || '—'}</span>
+                            </div>
+                            <div class="lookup-field">
+                                <span class="lookup-label">IP Atual</span>
+                                <span class="lookup-value mono" id="live-ip-${user.ID}-${index}">
+                                    <span class="spinner"></span> Verificando...
+                                </span>
+                            </div>
+                            <div class="lookup-field">
+                                <span class="lookup-label">Status da Máquina</span>
+                                <span class="lookup-value" id="live-status-${user.ID}-${index}">
+                                    <span class="spinner"></span> Verificando...
+                                </span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 12px; margin-top: 12px;">
+                            <button class="btn btn-danger" onclick="confirmShutdownSpecific('${m.Hostname}', 'live-ip-${user.ID}-${index}', '${m.IP}', '${user.Nome} (${m.Tipo})')" style="padding: 6px 12px; font-size: 0.75rem; border-radius:var(--radius-sm);">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:-2px;">
+                                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                                    <line x1="12" y1="2" x2="12" y2="12"></line>
+                                </svg>
+                                Desligar
+                            </button>
+                            <button class="btn btn-secondary" onclick="confirmRestartSpecific('${m.Hostname}', 'live-ip-${user.ID}-${index}', '${m.IP}', '${user.Nome} (${m.Tipo})')" style="padding: 6px 12px; font-size: 0.75rem; border-radius:var(--radius-sm); border-color: var(--warning); color: var(--warning); background: transparent;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:-2px;">
+                                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+                                </svg>
+                                Reiniciar
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        } else {
+            machinesHtml = `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.85rem;">Nenhuma máquina vinculada a este colaborador.</div>`;
+        }
+
         resultsDiv.innerHTML = `
             <div class="lookup-card" id="lookup-card-${user.ID}">
-                <div class="lookup-card-header">
-                    <div class="lookup-card-title-row">
+                <div class="lookup-card-header" style="border-bottom: 1px solid var(--border); padding-bottom: 16px;">
+                    <div class="lookup-card-title-row" style="display:flex; justify-content:space-between; align-items:center; width:100%;">
                         <div style="display:flex; align-items:center; gap:16px;">
                             <div class="lookup-avatar">${user.Nome.charAt(0).toUpperCase()}</div>
                             <div class="lookup-info">
@@ -623,86 +780,48 @@ async function selectUserForLookup(userId, userDisplayValue) {
                             </div>
                         </div>
                         <div style="display:flex; gap:8px; align-items:center;">
-                            <button class="btn-icon" title="Editar Colaborador" onclick="editUser(${user.ID})" style="background:transparent; border-color:var(--border); width:32px; height:32px;">
+                            <button class="btn-icon" title="Editar Colaborador" onclick="editUser(${user.ID})" style="background:transparent; border-color:var(--border); width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                                 </svg>
                             </button>
-                            <button id="fav-btn-${user.ID}" class="btn-favorite ${favs.includes(user.ID) ? 'active' : ''}" onclick="toggleFavorite(${user.ID})" title="Favoritar">
+                            <button id="fav-btn-${user.ID}" class="btn-favorite ${favs.includes(user.ID) ? 'active' : ''}" onclick="toggleFavorite(${user.ID})" title="Favoritar" style="width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center;">
                                 ${favs.includes(user.ID) 
                                     ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
                                     : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'}
                             </button>
                         </div>
                     </div>
-                    <span class="badge badge-${(user.Status || 'ativo').toLowerCase()}"><span class="badge-dot"></span>${user.Status || 'Ativo'}</span>
+                    <span class="badge badge-${(user.Status || 'ativo').toLowerCase()}" style="margin-top:12px;"><span class="badge-dot"></span>${user.Status || 'Ativo'}</span>
                 </div>
-                <div class="lookup-card-body">
-                    <div class="lookup-field">
-                        <span class="lookup-label">Serial</span>
-                        <span class="lookup-value mono">${user.Serial || '—'}</span>
-                    </div>
-                    <div class="lookup-field">
-                        <span class="lookup-label">Hostname</span>
-                        <span class="lookup-value mono">${user.Hostname || '—'}</span>
-                    </div>
-                    <div class="lookup-field">
-                        <span class="lookup-label">IP Cadastrado</span>
-                        <span class="lookup-value mono">${user.IP || '—'}</span>
-                    </div>
-                    <div class="lookup-field">
-                        <span class="lookup-label">IP Atual</span>
-                        <span class="lookup-value mono lookup-live-ip" id="live-ip-${user.ID}">
-                            <span class="spinner"></span> Verificando...
-                        </span>
-                    </div>
-                    <div class="lookup-field">
-                        <span class="lookup-label">Status da Máquina</span>
-                        <span class="lookup-value" id="live-status-${user.ID}">
-                            <span class="spinner"></span> Verificando...
-                        </span>
-                    </div>
-                </div>
-                <div class="lookup-card-actions" style="padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 12px; background: rgba(255, 255, 255, 0.01);">
-                    <button class="btn btn-danger" onclick="confirmShutdown(${user.ID}, '${user.Nome}')" style="padding: 8px 16px; font-size: 0.8rem;">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:-2px;">
-                            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
-                            <line x1="12" y1="2" x2="12" y2="12"></line>
-                        </svg>
-                        Desligar Máquina
-                    </button>
-                    <button class="btn btn-secondary" onclick="confirmRestart(${user.ID}, '${user.Nome}')" style="padding: 8px 16px; font-size: 0.8rem; border-color: var(--warning); color: var(--warning); background: transparent;">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:-2px;">
-                            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
-                        </svg>
-                        Reiniciar Máquina
-                    </button>
+                
+                <div style="padding: 0 20px 20px 20px;">
+                    <div style="font-weight:600; font-size:0.85rem; color:var(--text-muted); border-bottom:1px solid var(--border); padding-bottom:8px; margin-top:16px;">MÁQUINAS CADASTRADAS</div>
+                    ${machinesHtml}
                 </div>
             </div>
         `;
         
-        if (user.Hostname && user.Hostname !== "") {
-            autoPing(user.ID, user.Hostname);
-        } else {
-            const ipEl = document.getElementById(`live-ip-${user.ID}`);
-            const statusEl = document.getElementById(`live-status-${user.ID}`);
-            if (ipEl) ipEl.textContent = "Sem hostname";
-            if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-muted)">Sem hostname cadastrado</span>';
+        if (user.maquinas && user.maquinas.length > 0) {
+            user.maquinas.forEach((m, index) => {
+                autoPingSpecific(user.ID, index, m.Hostname);
+            });
         }
         
         loadDashboard();
         
-    } catch {
+    } catch (error) {
+        console.error("Erro ao carregar lookup", error);
         resultsDiv.style.display = "none";
         emptyDiv.style.display = "block";
         emptyDiv.textContent = "Erro ao carregar colaborador.";
     }
 }
 
-async function autoPing(userId, hostname) {
-    const ipEl = document.getElementById(`live-ip-${userId}`);
-    const statusEl = document.getElementById(`live-status-${userId}`);
+async function autoPingSpecific(userId, index, hostname) {
+    const ipEl = document.getElementById(`live-ip-${userId}-${index}`);
+    const statusEl = document.getElementById(`live-status-${userId}-${index}`);
 
     try {
         const res = await fetch(`/ping/${encodeURIComponent(hostname)}`);
@@ -727,13 +846,9 @@ async function autoPing(userId, hostname) {
     }
 }
 
-// ─── AÇÕES REMOTAS (DESLIGAR / REINICIAR) ──────────────────────
-function getActionTarget(userId) {
-    const card = document.getElementById(`lookup-card-${userId}`);
-    if (!card) return null;
-    
-    // 1. Prioridade 1: IP Atual resolvido ao vivo
-    const liveIpEl = document.getElementById(`live-ip-${userId}`);
+// ─── AÇÕES REMOTAS (DESLIGAR / REINICIAR ESPECÍFICOS) ───────────
+function getSpecificActionTarget(hostname, liveIpElementId, registeredIp) {
+    const liveIpEl = document.getElementById(liveIpElementId);
     if (liveIpEl) {
         const match = liveIpEl.innerText.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
         if (match && match[1]) {
@@ -741,35 +856,12 @@ function getActionTarget(userId) {
         }
     }
     
-    // 2. Prioridade 2: IP Cadastrado
-    const fields = card.querySelectorAll('.lookup-field');
-    for (let field of fields) {
-        const label = field.querySelector('.lookup-label');
-        const value = field.querySelector('.lookup-value');
-        if (label && value) {
-            const labelText = label.textContent.toLowerCase();
-            if (labelText.includes("ip cadastrado") || labelText.includes("ip")) {
-                const valText = value.textContent.replace(/[^0-9\.]/g, '').trim();
-                if (valText && valText !== "—" && valText !== "") {
-                    return valText;
-                }
-            }
-        }
+    if (registeredIp && registeredIp !== "—" && registeredIp !== "") {
+        return registeredIp;
     }
     
-    // 3. Fallback para o Hostname cadastrado
-    for (let field of fields) {
-        const label = field.querySelector('.lookup-label');
-        const value = field.querySelector('.lookup-value');
-        if (label && value) {
-            const labelText = label.textContent.toLowerCase();
-            if (labelText.includes("hostname")) {
-                const valText = value.textContent.trim();
-                if (valText && valText !== "—") {
-                    return valText;
-                }
-            }
-        }
+    if (hostname) {
+        return hostname;
     }
     
     return null;
@@ -786,16 +878,16 @@ function copyModalCommand() {
     }
 }
 
-function confirmShutdown(userId, name) {
-    const target = getActionTarget(userId);
+function confirmShutdownSpecific(hostname, liveIpElementId, registeredIp, displayName) {
+    const target = getSpecificActionTarget(hostname, liveIpElementId, registeredIp);
     if (!target) {
-        showToast("Nenhum IP ou Hostname disponível para a máquina.", "error");
+        showToast("Nenhum IP ou Hostname disponível para esta máquina.", "error");
         return;
     }
     
     const cmd = `shutdown /s /f /t 0 /m \\\\${target}`;
     const messageHtml = `
-        <p style="margin-bottom: 12px;">Copie o comando abaixo e execute-o no seu CMD de Administrador para <strong>desligar</strong> a máquina de <strong>${name}</strong>:</p>
+        <p style="margin-bottom: 12px;">Copie o comando abaixo e execute-o no seu CMD de Administrador para <strong>desligar</strong> a máquina de <strong>${displayName}</strong>:</p>
         <div style="position:relative; margin-top:12px;">
             <input type="text" id="cmd-to-copy" value="${cmd}" readonly 
                 style="width:100%; padding:12px 40px 12px 12px; font-family: Consolas, monospace; font-size:0.85rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-hover); color:var(--text-primary); outline:none;">
@@ -816,16 +908,16 @@ function confirmShutdown(userId, name) {
     );
 }
 
-function confirmRestart(userId, name) {
-    const target = getActionTarget(userId);
+function confirmRestartSpecific(hostname, liveIpElementId, registeredIp, displayName) {
+    const target = getSpecificActionTarget(hostname, liveIpElementId, registeredIp);
     if (!target) {
-        showToast("Nenhum IP ou Hostname disponível para a máquina.", "error");
+        showToast("Nenhum IP ou Hostname disponível para esta máquina.", "error");
         return;
     }
     
     const cmd = `shutdown /r /f /t 0 /m \\\\${target}`;
     const messageHtml = `
-        <p style="margin-bottom: 12px;">Copie o comando abaixo e execute-o no seu CMD de Administrador para <strong>reiniciar</strong> a máquina de <strong>${name}</strong>:</p>
+        <p style="margin-bottom: 12px;">Copie o comando abaixo e execute-o no seu CMD de Administrador para <strong>reiniciar</strong> a máquina de <strong>${displayName}</strong>:</p>
         <div style="position:relative; margin-top:12px;">
             <input type="text" id="cmd-to-copy" value="${cmd}" readonly 
                 style="width:100%; padding:12px 40px 12px 12px; font-family: Consolas, monospace; font-size:0.85rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-hover); color:var(--text-primary); outline:none;">
@@ -849,3 +941,9 @@ function confirmRestart(userId, name) {
 // ─── INICIALIZAÇÃO ─────────────────────────────────────────────
 initTheme();
 loadDashboard();
+
+// Inicializa o contêiner de máquinas com uma vazia por padrão
+const mContainer = document.getElementById("machines-container");
+if (mContainer && mContainer.children.length === 0) {
+    addMachineField();
+}
