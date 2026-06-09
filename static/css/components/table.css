@@ -1,0 +1,56 @@
+/* ==========================================================================
+   Table Component
+   ========================================================================== */
+.ds-table-container {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface);
+}
+
+.ds-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+  font-family: var(--font-family-base);
+  font-size: 0.875rem;
+}
+
+.ds-table th {
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface-hover);
+  white-space: nowrap;
+}
+
+.ds-table td {
+  padding: var(--space-4);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.ds-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ds-table tbody tr {
+  transition: background-color var(--transition-fast);
+}
+
+.ds-table tbody tr:hover {
+  background-color: var(--bg-body); /* Ou uma cor sutil de hover */
+}
+
+/* Empty State */
+.ds-table-empty {
+  text-align: center;
+  padding: var(--space-8) var(--space-4) !important;
+  color: var(--text-secondary);
+  font-style: italic;
+}

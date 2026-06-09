@@ -1,0 +1,85 @@
+/* ==========================================================================
+   Badge Component
+   ========================================================================== */
+.ds-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  
+  font-family: var(--font-family-base);
+  font-size: 0.75rem; /* 12px */
+  font-weight: var(--font-weight-medium);
+  line-height: 1.5;
+  white-space: nowrap;
+  
+  background-color: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  transition: all var(--transition-fast);
+}
+
+.ds-badge--sm {
+  padding: 0px var(--space-1);
+  font-size: 0.65rem;
+}
+
+.ds-badge--lg {
+  padding: var(--space-1) var(--space-3);
+  font-size: 0.875rem;
+}
+
+/* Variants */
+.ds-badge--primary {
+  background-color: rgb(99 102 241 / 0.1);
+  color: var(--color-primary-600);
+  border-color: rgb(99 102 241 / 0.2);
+}
+[data-theme="dark"] .ds-badge--primary {
+  color: var(--color-primary-500);
+}
+
+.ds-badge--success {
+  background-color: rgb(16 185 129 / 0.1);
+  color: #059669;
+  border-color: rgb(16 185 129 / 0.2);
+}
+[data-theme="dark"] .ds-badge--success {
+  color: var(--color-success);
+}
+
+.ds-badge--danger {
+  background-color: rgb(239 68 68 / 0.1);
+  color: #dc2626;
+  border-color: rgb(239 68 68 / 0.2);
+}
+[data-theme="dark"] .ds-badge--danger {
+  color: var(--color-danger);
+}
+
+.ds-badge--warning {
+  background-color: rgb(245 158 11 / 0.1);
+  color: #d97706;
+  border-color: rgb(245 158 11 / 0.2);
+}
+[data-theme="dark"] .ds-badge--warning {
+  color: var(--color-warning);
+}
+
+/* Indicators (dots) */
+.ds-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+.ds-badge__dot--pulse {
+  animation: ds-pulse 1.5s infinite;
+}
+
+@keyframes ds-pulse {
+  0% { box-shadow: 0 0 0 0 currentColor; }
+  70% { box-shadow: 0 0 0 4px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}

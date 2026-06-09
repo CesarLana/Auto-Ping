@@ -1,289 +1,280 @@
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 import subprocess
 import re
-import shutil
-from flask import Flask, request, jsonify, send_from_directory
-import pandas as pd
+import sqlite3
+from flask import Flask, request, jsonify, send_from_directory, make_response
+from contextlib import closing
+from datetime import datetime
 
 app = Flask(__name__, static_folder="static")
 
+@app.after_request
+def add_header(response):
+    if request.path.startswith('/static/'):
+        response.cache_control.max_age = 86400
+        response.cache_control.public = True
+    return response
+
+DB_FILE = "usuarios.db"
 EXCEL_FILE = "usuarios.xlsx"
-COLUMNS_USERS = ["ID", "RACF", "Funcional", "Nome", "Email", "Status"]
-COLUMNS_MACHINES = ["ID", "Usuario_ID", "Tipo", "Hostname", "IP", "Serial"]
 
+def get_db():
+    conn = sqlite3.connect(DB_FILE, timeout=15)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    return conn
 
-# Cria o arquivo de banco de dados (Excel) com as colunas caso não exista
-def init_excel():
+def init_db():
+    with closing(get_db()) as conn:
+        with conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS colaboradores (
+                    ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    RACF TEXT NOT NULL,
+                    Funcional TEXT NOT NULL,
+                    Nome TEXT NOT NULL,
+                    Email TEXT,
+                    Status TEXT DEFAULT 'Ativo'
+                )
+            ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS maquinas (
+                    ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Usuario_ID INTEGER NOT NULL,
+                    Tipo TEXT DEFAULT 'Notebook',
+                    Hostname TEXT NOT NULL,
+                    IP TEXT,
+                    Serial TEXT,
+                    FOREIGN KEY(Usuario_ID) REFERENCES colaboradores(ID) ON DELETE CASCADE
+                )
+            ''')
+            conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_colab_racf ON colaboradores(RACF)')
+            conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_colab_func ON colaboradores(Funcional)')
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_colab_email ON colaboradores(Email) WHERE Email != ''")
+            conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_maq_host ON maquinas(Hostname)')
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_maq_serial ON maquinas(Serial) WHERE Serial != ''")
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_maq_usu ON maquinas(Usuario_ID)')
+
+def migrate_excel_to_sqlite():
+    try:
+        import pandas as pd
+    except ImportError:
+        return
     if not os.path.exists(EXCEL_FILE):
-        with pd.ExcelWriter(EXCEL_FILE) as writer:
-            pd.DataFrame(columns=COLUMNS_USERS).to_excel(writer, sheet_name="Colaboradores", index=False)
-            pd.DataFrame(columns=COLUMNS_MACHINES).to_excel(writer, sheet_name="Maquinas", index=False)
+        return
 
-
-# Backup automático do banco de dados Excel antes de escritas
-def backup_excel():
-    if os.path.exists(EXCEL_FILE):
-        backup_file = EXCEL_FILE + ".bak"
-        try:
-            shutil.copy2(EXCEL_FILE, backup_file)
-        except Exception as e:
-            print(f"Erro ao criar backup do Excel: {e}")
-
-
-# Lê as duas abas do Excel, normaliza e retorna os dados em formato DataFrame limpo
-def read_excel():
-    if not os.path.exists(EXCEL_FILE):
-        init_excel()
     try:
         xls = pd.ExcelFile(EXCEL_FILE)
     except Exception:
-        init_excel()
-        xls = pd.ExcelFile(EXCEL_FILE)
-
-    # Migração automática de dados caso detecte planilha do formato antigo (aba única)
-    if "Colaboradores" not in xls.sheet_names:
-        backup_excel()
-        try:
-            df_old = pd.read_excel(EXCEL_FILE)
-            for col in ["ID", "RACF", "Funcional", "Nome", "Email", "Serial", "Hostname", "IP", "Status"]:
-                if col not in df_old.columns:
-                    df_old[col] = ""
-            
-            df_users = df_old[["ID", "RACF", "Funcional", "Nome", "Email", "Status"]].copy()
-            
-            machines_list = []
-            machine_id = 1
-            for _, row in df_old.iterrows():
-                h_name = str(row.get("Hostname", "")).strip()
-                if h_name and h_name.lower() not in ["nan", ""]:
-                    tipo = "Notebook"
-                    h_lower = h_name.lower()
-                    if "desk" in h_lower:
-                        tipo = "Desktop"
-                    elif "mini" in h_lower:
-                        tipo = "Minidesk"
-                        
-                    machines_list.append({
-                        "ID": machine_id,
-                        "Usuario_ID": row["ID"],
-                        "Tipo": tipo,
-                        "Hostname": h_name,
-                        "IP": str(row.get("IP", "")).strip(),
-                        "Serial": str(row.get("Serial", "")).strip()
-                    })
-                    machine_id += 1
-                    
-            df_machines = pd.DataFrame(machines_list, columns=COLUMNS_MACHINES)
-            
-            with pd.ExcelWriter(EXCEL_FILE) as writer:
-                df_users.to_excel(writer, sheet_name="Colaboradores", index=False)
-                df_machines.to_excel(writer, sheet_name="Maquinas", index=False)
-                
-            xls = pd.ExcelFile(EXCEL_FILE)
-        except Exception as e:
-            print(f"Erro ao migrar a planilha antiga: {e}")
-            df_users = pd.DataFrame(columns=COLUMNS_USERS)
-            df_machines = pd.DataFrame(columns=COLUMNS_MACHINES)
-            return df_users, df_machines
+        return
+        
+    if "Colaboradores" not in xls.sheet_names or "Maquinas" not in xls.sheet_names:
+        return
 
     df_users = pd.read_excel(xls, sheet_name="Colaboradores")
     df_machines = pd.read_excel(xls, sheet_name="Maquinas")
 
-    # Normalização dos Colaboradores
-    for col in COLUMNS_USERS:
-        if col not in df_users.columns:
-            df_users[col] = ""
-    df_users["ID"] = pd.to_numeric(df_users["ID"], errors="coerce").fillna(0).astype(int)
-    for col in ["RACF", "Funcional", "Nome", "Email", "Status"]:
-        df_users[col] = df_users[col].apply(
-            lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else (str(x) if pd.notna(x) else "")
-        ).str.strip()
-    df_users["RACF"] = df_users["RACF"].str.upper()
-    df_users["Email"] = df_users["Email"].str.lower()
-    df_users["Status"] = df_users["Status"].apply(lambda x: x if x in ["Ativo", "Inativo"] else "Ativo")
+    with closing(get_db()) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM colaboradores")
+        if cursor.fetchone()[0] > 0:
+            return
 
-    # Normalização das Máquinas
-    for col in COLUMNS_MACHINES:
-        if col not in df_machines.columns:
-            df_machines[col] = ""
-    df_machines["ID"] = pd.to_numeric(df_machines["ID"], errors="coerce").fillna(0).astype(int)
-    df_machines["Usuario_ID"] = pd.to_numeric(df_machines["Usuario_ID"], errors="coerce").fillna(0).astype(int)
-    for col in ["Tipo", "Hostname", "IP", "Serial"]:
-        df_machines[col] = df_machines[col].apply(
-            lambda x: str(int(x)) if isinstance(x, float) and x.is_integer() else (str(x) if pd.notna(x) else "")
-        ).str.strip()
-    df_machines["Hostname"] = df_machines["Hostname"].str.upper()
-    df_machines["Tipo"] = df_machines["Tipo"].apply(lambda x: x if x in ["Desktop", "Notebook", "Minidesk"] else "Notebook")
+        with conn:
+            for _, row in df_users.iterrows():
+                if pd.isna(row.get("Nome")): continue
+                cursor.execute('''
+                    INSERT INTO colaboradores (ID, RACF, Funcional, Nome, Email, Status)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    int(row["ID"]) if pd.notna(row.get("ID")) else None,
+                    str(int(row["RACF"])) if isinstance(row.get("RACF"), float) and row["RACF"].is_integer() else str(row.get("RACF", "")),
+                    str(int(row["Funcional"])) if isinstance(row.get("Funcional"), float) and row["Funcional"].is_integer() else str(row.get("Funcional", "")),
+                    str(row.get("Nome", "")),
+                    str(row.get("Email", "")),
+                    str(row.get("Status", "Ativo"))
+                ))
 
-    return df_users, df_machines
-
-
-# Salva ambos os DataFrames de volta no arquivo Excel
-def save_excel(df_users, df_machines):
-    backup_excel()
-    with pd.ExcelWriter(EXCEL_FILE) as writer:
-        df_users.to_excel(writer, sheet_name="Colaboradores", index=False)
-        df_machines.to_excel(writer, sheet_name="Maquinas", index=False)
-
-
-# Gera um novo ID único para colaborador
-def next_id():
-    df_users, _ = read_excel()
-    if df_users.empty:
-        return 1
-    return int(df_users["ID"].max()) + 1
+            for _, row in df_machines.iterrows():
+                if pd.isna(row.get("Hostname")): continue
+                cursor.execute('''
+                    INSERT INTO maquinas (ID, Usuario_ID, Tipo, Hostname, IP, Serial)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    int(row["ID"]) if pd.notna(row.get("ID")) else None,
+                    int(row["Usuario_ID"]) if pd.notna(row.get("Usuario_ID")) else 0,
+                    str(row.get("Tipo", "Notebook")),
+                    str(row.get("Hostname", "")),
+                    str(row.get("IP", "")),
+                    str(int(row["Serial"])) if isinstance(row.get("Serial"), float) and row["Serial"].is_integer() else str(row.get("Serial", ""))
+                ))
+            
+    try:
+        os.rename(EXCEL_FILE, EXCEL_FILE + ".migrated.bak")
+    except Exception:
+        pass
 
 
-# Gera um novo ID único para máquina
-def next_machine_id():
-    _, df_machines = read_excel()
-    if df_machines.empty:
-        return 1
-    return int(df_machines["ID"].max()) + 1
+def is_valid_ip(ip_str):
+    parts = ip_str.split('.')
+    if len(parts) != 4:
+        return False
+    for p in parts:
+        try:
+            if not 0 <= int(p) <= 255:
+                return False
+        except ValueError:
+            return False
+    return True
 
-
-# ─── Rotas de Página ─────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    return send_from_directory("static", "index.html")
+    response = make_response(send_from_directory("static", "index.html"))
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
+@app.route("/test")
+def test_route():
+    return "OK"
 
-# ─── API REST ─────────────────────────────────────────────────────
 
 @app.route("/cadastrar", methods=["POST"])
 def cadastrar():
-    dados = request.get_json()
+    try:
+        dados = request.get_json()
+        if not dados:
+            return jsonify({"erro": "Requisição inválida. O corpo da mensagem deve ser um JSON."}), 400
 
-    # Validação de campos obrigatórios
-    for campo in ["RACF", "Funcional", "Nome", "Email"]:
-        if not str(dados.get(campo, "")).strip():
-            return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
+        for campo in ["RACF", "Funcional", "Nome"]:
+            if not str(dados.get(campo, "")).strip():
+                return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
 
-    racf_req = str(dados["RACF"]).strip().upper()
-    func_req = str(dados["Funcional"]).strip()
-    email_req = str(dados["Email"]).strip().lower()
+        racf_req = str(dados["RACF"]).strip().upper()
+        func_req = str(dados["Funcional"]).strip()
+        email_req = str(dados["Email"]).strip().lower()
 
-    if len(racf_req) > 7:
-        return jsonify({"erro": "O campo RACF deve ter no máximo 7 caracteres."}), 400
+        if len(racf_req) > 7:
+            return jsonify({"erro": "O campo RACF deve ter no máximo 7 caracteres."}), 400
 
-    if not re.match(r'^\d{1,9}$', func_req):
-        return jsonify({"erro": "O campo Funcional deve conter apenas números (máx. 9 dígitos)."}), 400
+        if not re.match(r'^\d{1,9}$', func_req):
+            return jsonify({"erro": "O campo Funcional deve conter apenas números (máx. 9 dígitos)."}), 400
 
-    df_users, df_machines = read_excel()
+        if email_req and not re.match(r'^[\w\.\-]+@[\w\.\-]+\.[a-zA-Z]{2,6}$', email_req):
+            return jsonify({"erro": "E-mail inválido."}), 400
 
-    # Verificação de duplicatas do colaborador
-    if not df_users.empty:
-        if racf_req in df_users["RACF"].values:
-            return jsonify({"erro": "Já existe um usuário cadastrado com este RACF."}), 409
-        if func_req in df_users["Funcional"].values:
-            return jsonify({"erro": "Já existe um usuário cadastrado com esta Funcional."}), 409
-        if email_req and email_req in df_users["Email"].values:
-            return jsonify({"erro": "Já existe um usuário cadastrado com este E-mail."}), 409
+        with closing(get_db()) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT ID FROM colaboradores WHERE RACF=?", (racf_req,))
+            if cursor.fetchone(): return jsonify({"erro": "Já existe um usuário cadastrado com este RACF."}), 409
+            cursor.execute("SELECT ID FROM colaboradores WHERE Funcional=?", (func_req,))
+            if cursor.fetchone(): return jsonify({"erro": "Já existe um usuário cadastrado com esta Funcional."}), 409
+            if email_req:
+                cursor.execute("SELECT ID FROM colaboradores WHERE Email=?", (email_req,))
+                if cursor.fetchone(): return jsonify({"erro": "Já existe um usuário cadastrado com este E-mail."}), 409
 
-    # Validar a lista de máquinas recebidas
-    maquinas_req = dados.get("maquinas", [])
-    novas_maquinas = []
-    
-    hostnames_lote = set()
-    seriais_lote = set()
+            maquinas_req = dados.get("maquinas", [])
+            novas_maquinas = []
+            hostnames_lote = set()
+            seriais_lote = set()
 
-    for idx, maq in enumerate(maquinas_req):
-        h_name = str(maq.get("Hostname", "")).strip().upper()
-        serial = str(maq.get("Serial", "")).strip()
-        tipo = str(maq.get("Tipo", "Notebook")).strip()
-        ip = str(maq.get("IP", "")).strip()
+            for idx, maq in enumerate(maquinas_req):
+                if not isinstance(maq, dict): continue
+                h_name = str(maq.get("Hostname", "")).strip().upper()
+                serial = str(maq.get("Serial", "")).strip()
+                tipo = str(maq.get("Tipo", "Notebook")).strip()
+                ip = str(maq.get("IP", "")).strip()
 
-        if not h_name:
-            return jsonify({"erro": f"O campo Hostname da máquina #{idx + 1} é obrigatório."}), 400
-        
-        if not re.match(r'^[a-zA-Z0-9\-\._]+$', h_name):
-            return jsonify({"erro": f"Hostname '{h_name}' inválido."}), 400
+                if not h_name:
+                    return jsonify({"erro": f"O campo Hostname da máquina #{idx + 1} é obrigatório."}), 400
+                if not re.match(r'^[a-zA-Z0-9\-\._]+$', h_name):
+                    return jsonify({"erro": f"Hostname '{h_name}' inválido."}), 400
+                if ip and not is_valid_ip(ip):
+                    return jsonify({"erro": f"O IP '{ip}' da máquina #{idx + 1} é inválido."}), 400
 
-        # Verifica duplicação interna no próprio payload enviado
-        if h_name in hostnames_lote:
-            return jsonify({"erro": f"O hostname '{h_name}' foi informado mais de uma vez."}), 400
-        hostnames_lote.add(h_name)
+                if h_name in hostnames_lote: return jsonify({"erro": f"O hostname '{h_name}' foi informado mais de uma vez."}), 400
+                hostnames_lote.add(h_name)
 
-        if serial:
-            if serial in seriais_lote:
-                return jsonify({"erro": f"O número de serial '{serial}' foi informado mais de uma vez."}), 400
-            seriais_lote.add(serial)
+                if serial:
+                    if serial in seriais_lote: return jsonify({"erro": f"O número de serial '{serial}' foi informado mais de uma vez."}), 400
+                    seriais_lote.add(serial)
 
-        # Verifica duplicação no banco de dados Excel de máquinas
-        if not df_machines.empty:
-            if h_name in df_machines["Hostname"].values:
-                return jsonify({"erro": f"O hostname '{h_name}' já está cadastrado para outro colaborador."}), 409
-            if serial and serial in df_machines["Serial"].values:
-                return jsonify({"erro": f"O número de serial '{serial}' já está cadastrado para outro colaborador."}), 409
+                cursor.execute("SELECT ID FROM maquinas WHERE Hostname=?", (h_name,))
+                if cursor.fetchone(): return jsonify({"erro": f"O hostname '{h_name}' já está cadastrado para outro colaborador."}), 409
+                if serial:
+                    cursor.execute("SELECT ID FROM maquinas WHERE Serial=?", (serial,))
+                    if cursor.fetchone(): return jsonify({"erro": f"O número de serial '{serial}' já está cadastrado para outro colaborador."}), 409
 
-        novas_maquinas.append({
-            "Tipo": tipo,
-            "Hostname": h_name,
-            "IP": ip,
-            "Serial": serial
-        })
+                novas_maquinas.append((tipo, h_name, ip, serial))
 
-    user_id = next_id()
-    novo_usuario = {
-        "ID": user_id,
-        "RACF": racf_req,
-        "Funcional": func_req,
-        "Nome": dados["Nome"].strip(),
-        "Email": email_req,
-        "Status": dados.get("Status", "Ativo"),
-    }
+            with conn:
+                cursor.execute('''
+                    INSERT INTO colaboradores (RACF, Funcional, Nome, Email, Status)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (racf_req, func_req, dados["Nome"].strip(), email_req, dados.get("Status", "Ativo")))
+                user_id = cursor.lastrowid
 
-    # Adiciona máquinas vinculadas
-    machine_start_id = next_machine_id()
-    maquinas_adicionadas = []
-    for idx_m, maq in enumerate(novas_maquinas):
-        maq["ID"] = machine_start_id + idx_m
-        maq["Usuario_ID"] = user_id
-        maquinas_adicionadas.append(maq)
+                for maq in novas_maquinas:
+                    cursor.execute('''
+                        INSERT INTO maquinas (Usuario_ID, Tipo, Hostname, IP, Serial)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (user_id, maq[0], maq[1], maq[2], maq[3]))
 
-    # Insere e salva
-    df_users = pd.concat([df_users, pd.DataFrame([novo_usuario])], ignore_index=True)
-    if maquinas_adicionadas:
-        df_machines = pd.concat([df_machines, pd.DataFrame(maquinas_adicionadas)], ignore_index=True)
-    
-    save_excel(df_users, df_machines)
+            # Format return payload
+            novo_usuario = {
+                "ID": user_id, "RACF": racf_req, "Funcional": func_req, 
+                "Nome": dados["Nome"].strip(), "Email": email_req, "Status": dados.get("Status", "Ativo")
+            }
+            maqs = conn.execute("SELECT * FROM maquinas WHERE Usuario_ID=?", (user_id,)).fetchall()
+            novo_usuario["maquinas"] = [dict(m) for m in maqs]
 
-    novo_usuario["maquinas"] = maquinas_adicionadas
-    return jsonify({"mensagem": "Usuário cadastrado com sucesso!", "usuario": novo_usuario}), 201
+        return jsonify({"mensagem": "Usuário cadastrado com sucesso!", "usuario": novo_usuario}), 201
+
+    except Exception as e:
+        logger.exception("Erro interno:")
+        return jsonify({"erro": "Erro interno do servidor."}), 500
 
 
 @app.route("/usuarios", methods=["GET"])
 def listar():
-    df_users, df_machines = read_excel()
     busca = request.args.get("busca", "").strip().lower()
+    with closing(get_db()) as conn:
+        rows = conn.execute('''
+            SELECT c.*, 
+                   m.ID as m_ID, m.Tipo, m.Hostname, m.IP, m.Serial 
+            FROM colaboradores c
+            LEFT JOIN maquinas m ON c.ID = m.Usuario_ID
+            ORDER BY c.ID
+        ''').fetchall()
 
-    usuarios_list = []
-    for _, user_row in df_users.iterrows():
-        user_dict = user_row.to_dict()
-        user_id = user_dict["ID"]
-        
-        user_machines = []
-        if not df_machines.empty:
-            user_machines_df = df_machines[df_machines["Usuario_ID"] == user_id]
-            user_machines = user_machines_df.to_dict(orient="records")
-            
-        user_dict["maquinas"] = user_machines
-        usuarios_list.append(user_dict)
+        usuarios_map = {}
+        for row in rows:
+            uid = row["ID"]
+            if uid not in usuarios_map:
+                usuarios_map[uid] = {
+                    "ID": uid, "RACF": row["RACF"], "Funcional": row["Funcional"],
+                    "Nome": row["Nome"], "Email": row["Email"], "Status": row["Status"],
+                    "maquinas": []
+                }
+            if row["m_ID"]:
+                usuarios_map[uid]["maquinas"].append({
+                    "ID": row["m_ID"], "Tipo": row["Tipo"],
+                    "Hostname": row["Hostname"], "IP": row["IP"], "Serial": row["Serial"]
+                })
+        usuarios_list = list(usuarios_map.values())
 
-    # Busca global por colaborador ou suas máquinas
     if busca:
         filtrados = []
         for u in usuarios_list:
-            match_colab = any(
-                busca in str(u.get(k, "")).lower() 
-                for k in ["RACF", "Funcional", "Nome", "Email", "Status"]
-            )
-            match_maq = any(
-                busca in str(m.get(k, "")).lower() 
-                for m in u["maquinas"] 
-                for k in ["Hostname", "IP", "Serial", "Tipo"]
-            )
+            match_colab = any(busca in str(u.get(k, "")).lower() for k in ["RACF", "Funcional", "Nome", "Email", "Status"])
+            match_maq = any(busca in str(m.get(k, "")).lower() for m in u["maquinas"] for k in ["Hostname", "IP", "Serial", "Tipo"])
             if match_colab or match_maq:
                 filtrados.append(u)
         usuarios_list = filtrados
@@ -293,151 +284,122 @@ def listar():
 
 @app.route("/usuarios/<int:user_id>", methods=["GET"])
 def buscar(user_id):
-    df_users, df_machines = read_excel()
-    usuario_df = df_users[df_users["ID"] == user_id]
-
-    if usuario_df.empty:
-        return jsonify({"erro": "Usuário não encontrado."}), 404
-
-    usuario = usuario_df.iloc[0].to_dict()
-    user_machines = []
-    if not df_machines.empty:
-        user_machines_df = df_machines[df_machines["Usuario_ID"] == user_id]
-        user_machines = user_machines_df.to_dict(orient="records")
-        
-    usuario["maquinas"] = user_machines
-    return jsonify(usuario)
+    with closing(get_db()) as conn:
+        u = conn.execute("SELECT * FROM colaboradores WHERE ID=?", (user_id,)).fetchone()
+        if not u:
+            return jsonify({"erro": "Usuário não encontrado."}), 404
+        user_dict = dict(u)
+        maquinas = conn.execute("SELECT * FROM maquinas WHERE Usuario_ID=?", (user_id,)).fetchall()
+        user_dict["maquinas"] = [dict(m) for m in maquinas]
+    return jsonify(user_dict)
 
 
 @app.route("/usuarios/<int:user_id>", methods=["PUT"])
 def editar(user_id):
-    dados = request.get_json()
-    df_users, df_machines = read_excel()
+    try:
+        dados = request.get_json()
+        if not dados: return jsonify({"erro": "Requisição inválida. O corpo da mensagem deve ser um JSON."}), 400
 
-    idx = df_users.index[df_users["ID"] == user_id]
-    if idx.empty:
-        return jsonify({"erro": "Usuário não encontrado."}), 404
+        with closing(get_db()) as conn:
+            cursor = conn.cursor()
+            u = cursor.execute("SELECT ID FROM colaboradores WHERE ID=?", (user_id,)).fetchone()
+            if not u: return jsonify({"erro": "Usuário não encontrado."}), 404
 
-    # Validação de campos obrigatórios
-    for campo in ["RACF", "Funcional", "Nome", "Email"]:
-        if campo in dados and not str(dados[campo]).strip():
-            return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
+            for campo in ["RACF", "Funcional", "Nome"]:
+                if campo in dados and not str(dados[campo]).strip():
+                    return jsonify({"erro": f"O campo '{campo}' é obrigatório."}), 400
 
-    racf_req = str(dados.get("RACF", "")).strip().upper() if "RACF" in dados else ""
-    func_req = str(dados.get("Funcional", "")).strip() if "Funcional" in dados else ""
-    email_req = str(dados.get("Email", "")).strip().lower() if "Email" in dados else ""
+            racf_req = str(dados.get("RACF", "")).strip().upper() if "RACF" in dados else ""
+            func_req = str(dados.get("Funcional", "")).strip() if "Funcional" in dados else ""
+            email_req = str(dados.get("Email", "")).strip().lower() if "Email" in dados else ""
 
-    if racf_req and len(racf_req) > 7:
-        return jsonify({"erro": "O campo RACF deve ter no máximo 7 caracteres."}), 400
+            if racf_req and len(racf_req) > 7: return jsonify({"erro": "O campo RACF deve ter no máximo 7 caracteres."}), 400
+            if func_req and not re.match(r'^\d{1,9}$', func_req): return jsonify({"erro": "O campo Funcional deve conter apenas números (máx. 9 dígitos)."}), 400
+            if email_req and not re.match(r'^[\w\.\-]+@[\w\.\-]+\.[a-zA-Z]{2,6}$', email_req): return jsonify({"erro": "E-mail inválido."}), 400
 
-    if func_req and not re.match(r'^\d{1,9}$', func_req):
-        return jsonify({"erro": "O campo Funcional deve conter apenas números (máx. 9 dígitos)."}), 400
+            if racf_req:
+                if cursor.execute("SELECT ID FROM colaboradores WHERE RACF=? AND ID!=?", (racf_req, user_id)).fetchone(): return jsonify({"erro": "Já existe outro usuário cadastrado com este RACF."}), 409
+            if func_req:
+                if cursor.execute("SELECT ID FROM colaboradores WHERE Funcional=? AND ID!=?", (func_req, user_id)).fetchone(): return jsonify({"erro": "Já existe outro usuário cadastrado com esta Funcional."}), 409
+            if email_req:
+                if cursor.execute("SELECT ID FROM colaboradores WHERE Email=? AND ID!=?", (email_req, user_id)).fetchone(): return jsonify({"erro": "Já existe outro usuário cadastrado com este E-mail."}), 409
 
-    # Verificação de duplicatas
-    outros_users = df_users[df_users["ID"] != user_id]
-    if not outros_users.empty:
-        if racf_req and racf_req in outros_users["RACF"].values:
-            return jsonify({"erro": "Já existe outro usuário cadastrado com este RACF."}), 409
-        if func_req and func_req in outros_users["Funcional"].values:
-            return jsonify({"erro": "Já existe outro usuário cadastrado com esta Funcional."}), 409
-        if email_req and email_req in outros_users["Email"].values:
-            return jsonify({"erro": "Já existe outro usuário cadastrado com este E-mail."}), 409
+            if "maquinas" in dados:
+                maquinas_req = dados["maquinas"]
+                novas_maquinas = []
+                hostnames_lote = set()
+                seriais_lote = set()
 
-    # Validar e vincular novas máquinas (se fornecido na edição)
-    if "maquinas" in dados:
-        maquinas_req = dados["maquinas"]
-        novas_maquinas = []
-        
-        hostnames_lote = set()
-        seriais_lote = set()
+                for idx_m, maq in enumerate(maquinas_req):
+                    if not isinstance(maq, dict): continue
+                    h_name = str(maq.get("Hostname", "")).strip().upper()
+                    serial = str(maq.get("Serial", "")).strip()
+                    tipo = str(maq.get("Tipo", "Notebook")).strip()
+                    ip = str(maq.get("IP", "")).strip()
 
-        outras_maquinas = df_machines[df_machines["Usuario_ID"] != user_id] if not df_machines.empty else pd.DataFrame(columns=COLUMNS_MACHINES)
+                    if not h_name: return jsonify({"erro": f"O campo Hostname da máquina #{idx_m + 1} é obrigatório."}), 400
+                    if not re.match(r'^[a-zA-Z0-9\-\._]+$', h_name): return jsonify({"erro": f"Hostname '{h_name}' inválido."}), 400
+                    if ip and not is_valid_ip(ip): return jsonify({"erro": f"O IP '{ip}' da máquina #{idx_m + 1} é inválido."}), 400
 
-        for idx_m, maq in enumerate(maquinas_req):
-            h_name = str(maq.get("Hostname", "")).strip().upper()
-            serial = str(maq.get("Serial", "")).strip()
-            tipo = str(maq.get("Tipo", "Notebook")).strip()
-            ip = str(maq.get("IP", "")).strip()
+                    if h_name in hostnames_lote: return jsonify({"erro": f"O hostname '{h_name}' foi informado mais de uma vez."}), 400
+                    hostnames_lote.add(h_name)
 
-            if not h_name:
-                return jsonify({"erro": f"O campo Hostname da máquina #{idx_m + 1} é obrigatório."}), 400
-            
-            if not re.match(r'^[a-zA-Z0-9\-\._]+$', h_name):
-                return jsonify({"erro": f"Hostname '{h_name}' inválido."}), 400
+                    if serial:
+                        if serial in seriais_lote: return jsonify({"erro": f"O número de serial '{serial}' foi informado mais de uma vez."}), 400
+                        seriais_lote.add(serial)
 
-            if h_name in hostnames_lote:
-                return jsonify({"erro": f"O hostname '{h_name}' foi informado mais de uma vez."}), 400
-            hostnames_lote.add(h_name)
+                    if cursor.execute("SELECT ID FROM maquinas WHERE Hostname=? AND Usuario_ID!=?", (h_name, user_id)).fetchone():
+                        return jsonify({"erro": f"O hostname '{h_name}' já está cadastrado para outro colaborador."}), 409
+                    if serial:
+                        if cursor.execute("SELECT ID FROM maquinas WHERE Serial=? AND Usuario_ID!=?", (serial, user_id)).fetchone():
+                            return jsonify({"erro": f"O número de serial '{serial}' já está cadastrado para outro colaborador."}), 409
 
-            if serial:
-                if serial in seriais_lote:
-                    return jsonify({"erro": f"O número de serial '{serial}' foi informado mais de uma vez."}), 400
-                seriais_lote.add(serial)
+                    novas_maquinas.append((tipo, h_name, ip, serial))
 
-            if not outras_maquinas.empty:
-                if h_name in outras_maquinas["Hostname"].values:
-                    return jsonify({"erro": f"O hostname '{h_name}' já está cadastrado para outro colaborador."}), 409
-                if serial and serial in outras_maquinas["Serial"].values:
-                    return jsonify({"erro": f"O número de serial '{serial}' já está cadastrado para outro colaborador."}), 409
+            with conn:
+                if "maquinas" in dados:
+                    cursor.execute("DELETE FROM maquinas WHERE Usuario_ID=?", (user_id,))
+                    for maq in novas_maquinas:
+                        cursor.execute('''
+                            INSERT INTO maquinas (Usuario_ID, Tipo, Hostname, IP, Serial)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (user_id, maq[0], maq[1], maq[2], maq[3]))
 
-            novas_maquinas.append({
-                "Tipo": tipo,
-                "Hostname": h_name,
-                "IP": ip,
-                "Serial": serial
-            })
+                campos_update = []
+                vals_update = []
+                for campo in ["RACF", "Funcional", "Nome", "Email", "Status"]:
+                    if campo in dados:
+                        valor = str(dados[campo]).strip()
+                        if campo == "RACF" and valor: valor = valor.upper()
+                        campos_update.append(f"{campo}=?")
+                        vals_update.append(valor)
+                
+                if campos_update:
+                    vals_update.append(user_id)
+                    query = f"UPDATE colaboradores SET {', '.join(campos_update)} WHERE ID=?"
+                    cursor.execute(query, tuple(vals_update))
 
-        # Remove todas as máquinas antigas vinculadas a este ID
-        if not df_machines.empty:
-            df_machines = df_machines[df_machines["Usuario_ID"] != user_id]
+            u = conn.execute("SELECT * FROM colaboradores WHERE ID=?", (user_id,)).fetchone()
+            usuario_atualizado = dict(u)
+            maquinas = conn.execute("SELECT * FROM maquinas WHERE Usuario_ID=?", (user_id,)).fetchall()
+            usuario_atualizado["maquinas"] = [dict(m) for m in maquinas]
 
-        # Insere a nova lista de máquinas
-        machine_start_id = next_machine_id()
-        maquinas_adicionadas = []
-        for idx_m, maq in enumerate(novas_maquinas):
-            maq["ID"] = machine_start_id + idx_m
-            maq["Usuario_ID"] = user_id
-            maquinas_adicionadas.append(maq)
-
-        if maquinas_adicionadas:
-            df_machines = pd.concat([df_machines, pd.DataFrame(maquinas_adicionadas)], ignore_index=True)
-
-    # Atualiza o colaborador
-    i = idx[0]
-    for campo in ["RACF", "Funcional", "Nome", "Email", "Status"]:
-        if campo in dados:
-            valor = str(dados[campo]).strip()
-            if campo == "RACF" and valor:
-                valor = valor.upper()
-            df_users.at[i, campo] = valor
-
-    save_excel(df_users, df_machines)
-    
-    usuario_atualizado = df_users.loc[i].to_dict()
-    user_machines = []
-    if not df_machines.empty:
-        user_machines = df_machines[df_machines["Usuario_ID"] == user_id].to_dict(orient="records")
-    usuario_atualizado["maquinas"] = user_machines
-
-    return jsonify({"mensagem": "Usuário atualizado com sucesso!", "usuario": usuario_atualizado})
+        return jsonify({"mensagem": "Usuário atualizado com sucesso!", "usuario": usuario_atualizado})
+    except Exception as e:
+        logger.exception("Erro interno:")
+        return jsonify({"erro": "Erro interno do servidor."}), 500
 
 
 @app.route("/usuarios/<int:user_id>", methods=["DELETE"])
 def excluir(user_id):
-    df_users, df_machines = read_excel()
-
-    if user_id not in df_users["ID"].values:
-        return jsonify({"erro": "Usuário não encontrado."}), 404
-
-    df_users = df_users[df_users["ID"] != user_id]
-    if not df_machines.empty:
-        df_machines = df_machines[df_machines["Usuario_ID"] != user_id]
-
-    save_excel(df_users, df_machines)
+    with closing(get_db()) as conn:
+        cursor = conn.cursor()
+        u = cursor.execute("SELECT ID FROM colaboradores WHERE ID=?", (user_id,)).fetchone()
+        if not u: return jsonify({"erro": "Usuário não encontrado."}), 404
+        with conn:
+            cursor.execute("DELETE FROM colaboradores WHERE ID=?", (user_id,))
     return jsonify({"mensagem": "Usuário excluído com sucesso!"})
 
-
-# ─── UTILITÁRIO: PING ────────────────────────────────────────────
 
 @app.route("/ping/<hostname>", methods=["GET"])
 def ping_host(hostname):
@@ -454,12 +416,9 @@ def ping_host(hostname):
 
         output = result.stdout
         ip = None
-        
         bracket_match = re.search(r'\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]', output)
-        if bracket_match:
-            ip = bracket_match.group(1)
-        elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname):
-            ip = hostname
+        if bracket_match: ip = bracket_match.group(1)
+        elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname): ip = hostname
         else:
             for line in output.splitlines():
                 line_lower = line.lower()
@@ -468,7 +427,6 @@ def ping_host(hostname):
                     if ipv4_match:
                         ip = ipv4_match.group(1)
                         break
-                        
         if not ip:
             for line in output.splitlines():
                 line_lower = line.lower()
@@ -477,12 +435,10 @@ def ping_host(hostname):
                     if ipv4_match:
                         ip = ipv4_match.group(1)
                         break
-
         if not ip:
             for line in output.splitlines():
                 line_lower = line.lower()
-                if any(x in line_lower for x in ["inacess", "unreach", "resposta de", "reply from", "perda", "lost"]):
-                    continue
+                if any(x in line_lower for x in ["inacess", "unreach", "resposta de", "reply from", "perda", "lost"]): continue
                 ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
                 if ipv4_match:
                     ip = ipv4_match.group(1)
@@ -502,9 +458,109 @@ def ping_host(hostname):
     except subprocess.TimeoutExpired:
         return jsonify({"erro": "Timeout ao tentar pingar a máquina."}), 408
     except Exception as e:
-        return jsonify({"erro": str(e)}), 500
+        logger.exception("Erro interno:")
+        return jsonify({"erro": "Erro interno do servidor."}), 500
+
+
+@app.route('/api/jump-action', methods=['POST'])
+def jump_action():
+    try:
+        import tempfile
+        import time
+        import threading
+        data = request.json
+        rdp_path = data.get('rdp_path')
+        jump_ip = data.get('jump_ip')
+        jump_user = data.get('jump_user')
+        jump_pass = data.get('jump_pass')
+        command = data.get('command')
+        target_ip = data.get('target_ip')
+
+        if not command or not target_ip:
+            return jsonify({"erro": "Comando ou IP alvo ausente."}), 400
+        if not rdp_path and not jump_ip:
+            return jsonify({"erro": "Forneça o caminho do .rdp ou o IP do Jump Server."}), 400
+
+        if jump_ip and not re.match(r'^[a-zA-Z0-9\-\.]+$', jump_ip):
+            return jsonify({"erro": "IP do Jump Server inválido."}), 400
+        if jump_user and not re.match(r'^[a-zA-Z0-9_\.\-\@]+$', jump_user):
+            return jsonify({"erro": "Usuário do Jump Server inválido."}), 400
+        if target_ip and not re.match(r'^[a-zA-Z0-9\-\.]+$', target_ip):
+            return jsonify({"erro": "IP alvo inválido."}), 400
+
+        if rdp_path:
+            if not os.path.exists(rdp_path) or not rdp_path.endswith('.rdp'):
+                return jsonify({"erro": "Arquivo RDP inválido ou inexistente."}), 400
+
+        temp_dir = tempfile.gettempdir()
+        safe_target = re.sub(r'[^a-zA-Z0-9]', '_', target_ip)
+        temp_rdp = os.path.join(temp_dir, f"autoping_jump_{safe_target}_{int(time.time())}.rdp")
+
+        rdp_content = []
+        if rdp_path and os.path.exists(rdp_path):
+            try:
+                with open(rdp_path, 'r', encoding='utf-8') as f:
+                    rdp_content = f.readlines()
+            except UnicodeDecodeError:
+                with open(rdp_path, 'r', encoding='utf-16') as f:
+                    rdp_content = f.readlines()
+            rdp_content = [line for line in rdp_content if not line.lower().startswith('alternate shell:')]
+            if not jump_ip:
+                for line in rdp_content:
+                    if line.lower().startswith('full address:s:'):
+                        jump_ip = line.split(':s:')[1].strip()
+        else:
+            rdp_content = [
+                f"full address:s:{jump_ip}\n",
+                f"username:s:{jump_user}\n",
+                "prompt for credentials:i:0\n"
+            ]
+
+        rdp_content.append('alternate shell:s:cmd.exe\n')
+
+        with open(temp_rdp, 'w', encoding='utf-16') as f:
+            f.writelines(rdp_content)
+
+        target = None
+        if jump_ip and jump_user and jump_pass:
+            import win32cred
+            target = f"TERMSRV/{jump_ip}"
+            cred = {
+                'TargetName': target, 'UserName': jump_user,
+                'CredentialBlob': jump_pass,
+                'Type': win32cred.CRED_TYPE_DOMAIN_PASSWORD, 'Persist': win32cred.CRED_PERSIST_SESSION
+            }
+            win32cred.CredWrite(cred, 0)
+
+        DETACHED_PROCESS = 0x00000008
+        subprocess.Popen(["mstsc.exe", temp_rdp], creationflags=DETACHED_PROCESS)
+
+        def cleanup_thread():
+            try:
+                time.sleep(3)
+                if target:
+                    import win32cred
+                    try: win32cred.CredDelete(target, win32cred.CRED_TYPE_DOMAIN_PASSWORD, 0)
+                    except Exception: pass
+            finally:
+                for _ in range(5):
+                    time.sleep(2)
+                    try:
+                        if os.path.exists(temp_rdp):
+                            os.remove(temp_rdp)
+                            break
+                    except Exception:
+                        pass
+
+        threading.Thread(target=cleanup_thread, daemon=True).start()
+
+        return jsonify({"mensagem": "Iniciando Área de Trabalho Remota e Injetando Credenciais!"}), 200
+    except Exception as e:
+        logger.exception("Erro interno:")
+        return jsonify({"erro": "Erro interno do servidor."}), 500
 
 
 if __name__ == "__main__":
-    init_excel()
-    app.run(debug=True, port=5000)
+    init_db()
+    migrate_excel_to_sqlite()
+    app.run(debug=False, port=5000, threaded=True, host="0.0.0.0")

@@ -1,0 +1,129 @@
+:root {
+  /* ==========================================================================
+     Typography (Google Fonts - Inter)
+     ========================================================================== */
+  --font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-family-heading: 'Inter', system-ui, -apple-system, sans-serif;
+  
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ==========================================================================
+     Spacing (8px scale)
+     ========================================================================== */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ==========================================================================
+     Borders & Radius
+     ========================================================================== */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  /* ==========================================================================
+     Transitions & Animations (Modern Physics-based)
+     ========================================================================== */
+  --transition-fast: 0.15s ease-out;
+  --transition-normal: 0.25s ease-out;
+  --transition-slow: 0.4s ease-in-out;
+  --transition-bounce: 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  --transition-spring: 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+  
+  --z-base: 1;
+  --z-overlay: 100;
+  --z-modal: 1000;
+}
+
+/* ==========================================================================
+   Dark Theme (Default)
+   ========================================================================== */
+:root {
+  --color-primary-500: #00F0FF;
+  --color-primary-600: #00C3D0;
+  --color-primary-700: #008791;
+
+  --color-success: #00FF9D;
+  --color-danger: #FF3366;
+  --color-warning: #FFD500;
+  --color-info: #00E5FF;
+
+  --bg-body: #0D1117;
+  --bg-surface: rgba(22, 27, 34, 0.6);
+  --bg-surface-hover: rgba(33, 38, 45, 0.8);
+  
+  --bg-material-thick: rgba(13, 17, 23, 0.85);
+  --bg-material-regular: rgba(22, 27, 34, 0.65);
+  --bg-material-thin: rgba(33, 38, 45, 0.45);
+  --material-blur: blur(16px) saturate(140%);
+  
+  --text-primary: #C9D1D9;
+  --text-secondary: #8B949E;
+  --text-tertiary: #484F58;
+  --text-inverse: #0D1117;
+  
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  
+  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 20px rgba(0, 240, 255, 0.25);
+  --shadow-danger-glow: 0 0 20px rgba(255, 51, 102, 0.25);
+
+  --bg-primary-transparent: rgba(0, 240, 255, 0.1);
+  --bg-primary-transparent-hover: rgba(0, 240, 255, 0.2);
+}
+
+/* ==========================================================================
+   Light Theme
+   ========================================================================== */
+[data-theme="light"] {
+  --color-primary-500: #0891B2;
+  --color-primary-600: #0E7490;
+  --color-primary-700: #155E75;
+
+  --color-success: #059669;
+  --color-danger: #DC2626;
+  --color-warning: #D97706;
+  --color-info: #0284C7;
+
+  --bg-body: #F0F4F8;
+  --bg-surface: rgba(255, 255, 255, 0.8);
+  --bg-surface-hover: rgba(241, 245, 249, 0.9);
+  
+  --bg-material-thick: rgba(255, 255, 255, 0.92);
+  --bg-material-regular: rgba(255, 255, 255, 0.75);
+  --bg-material-thin: rgba(255, 255, 255, 0.5);
+  --material-blur: blur(16px) saturate(140%);
+  
+  --text-primary: #1E293B;
+  --text-secondary: #64748B;
+  --text-tertiary: #94A3B8;
+  --text-inverse: #FFFFFF;
+  
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.15);
+  
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-glow: 0 0 15px rgba(8, 145, 178, 0.2);
+  --shadow-danger-glow: 0 0 15px rgba(220, 38, 38, 0.2);
+
+  --bg-primary-transparent: rgba(8, 145, 178, 0.1);
+  --bg-primary-transparent-hover: rgba(8, 145, 178, 0.2);
+}

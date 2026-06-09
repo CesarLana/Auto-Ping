@@ -1,0 +1,117 @@
+/* ==========================================================================
+   Button Component (Apple HIG Style)
+   ========================================================================== */
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  
+  font-family: var(--font-family-base);
+  font-weight: var(--font-weight-semibold);
+  font-size: 0.9375rem; /* 15px */
+  letter-spacing: -0.2px;
+  
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-lg);
+  border: none; /* Apple doesn't typically use borders on buttons */
+  
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+/* Base states */
+.ds-btn:focus-visible {
+  box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.4);
+}
+
+.ds-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Variants
+   ========================================================================== */
+
+/* Primary (Filled) */
+.ds-btn--primary {
+  background-color: var(--color-primary-500);
+  color: #ffffff;
+}
+[data-theme="dark"] .ds-btn--primary {
+  color: #ffffff;
+}
+
+.ds-btn--primary:hover:not(:disabled) {
+  background-color: var(--color-primary-600);
+  transform: scale(0.98); /* Apple spring press effect */
+}
+.ds-btn--primary:active:not(:disabled) {
+  background-color: var(--color-primary-700);
+  transform: scale(0.96);
+  opacity: 0.8;
+}
+
+/* Secondary (Tinted / Gray) */
+.ds-btn--secondary {
+  background-color: var(--color-neutral-200);
+  color: var(--color-primary-500);
+}
+[data-theme="dark"] .ds-btn--secondary {
+  background-color: var(--color-neutral-800);
+}
+
+.ds-btn--secondary:hover:not(:disabled) {
+  background-color: var(--color-neutral-300);
+  transform: scale(0.98);
+}
+[data-theme="dark"] .ds-btn--secondary:hover:not(:disabled) {
+  background-color: #3A3A3C;
+}
+
+.ds-btn--secondary:active:not(:disabled) {
+  transform: scale(0.96);
+  opacity: 0.8;
+}
+
+/* Outline (Deprecated in HIG, but kept for utility, usually styled as plain text in iOS) */
+.ds-btn--outline {
+  background-color: transparent;
+  color: var(--color-primary-500);
+  border: 1px solid var(--color-primary-500);
+}
+.ds-btn--outline:hover:not(:disabled) {
+  background-color: rgba(0, 122, 255, 0.1);
+}
+
+/* Ghost / Plain */
+.ds-btn--ghost {
+  background-color: transparent;
+  color: var(--color-primary-500);
+}
+.ds-btn--ghost:hover:not(:disabled) {
+  background-color: rgba(0, 122, 255, 0.1);
+}
+.ds-btn--ghost:active:not(:disabled) {
+  opacity: 0.5;
+}
+
+/* ==========================================================================
+   Sizes
+   ========================================================================== */
+.ds-btn--sm {
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.8125rem; /* 13px */
+  border-radius: var(--radius-md);
+}
+
+.ds-btn--lg {
+  padding: var(--space-4) var(--space-8);
+  font-size: 1.0625rem; /* 17px */
+  border-radius: var(--radius-xl);
+}

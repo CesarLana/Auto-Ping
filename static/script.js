@@ -1,62 +1,131 @@
+
+let dashboardAbortController = null;
+
+async function safeFetch(url, options) {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+        let msg = 'Erro no servidor';
+        try {
+            const data = await res.json();
+            if(data.erro) msg = data.erro;
+        } catch(e) {}
+        throw new Error(msg);
+    }
+    return res.json();
+}
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/[&<>'"`/]/g, function (s) {
+        return {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;',
+            '`': '&#x60;',
+            '/': '&#x2F;'
+        }[s];
+    });
+}
+
 // ─── ESTADO ────────────────────────────────────────────────────
 let deleteTargetId = null;
 let allUsersCache = [];
+let returnViewAfterEdit = "listar";
+let currentLookupUserId = null;
+let currentLookupUserName = null;
 
 // ─── NAVEGAÇÃO ─────────────────────────────────────────────────
 document.querySelectorAll(".nav-item").forEach((item) => {
     item.addEventListener("click", (e) => {
         e.preventDefault();
         const view = item.dataset.view;
+        if (view === "cadastrar") {
+            cancelEdit();
+        }
         switchView(view);
     });
 });
 
 function switchView(viewName) {
+    if (!document.startViewTransition) {
+        doSwitchView(viewName);
+        return;
+    }
+    // Usa View Transitions nativo do navegador!
+    document.startViewTransition(() => doSwitchView(viewName));
+}
+
+function doSwitchView(viewName) {
     document.querySelectorAll(".nav-item").forEach((n) => n.classList.remove("active"));
-    document.querySelector(`.nav-item[data-view="${viewName}"]`).classList.add("active");
+    const activeNav = document.querySelector(`.nav-item[data-view="${viewName}"]`);
+    if(activeNav) activeNav.classList.add("active");
 
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-    document.getElementById(`view-${viewName}`).classList.add("active");
+    const targetView = document.getElementById(`view-${viewName}`);
+    if(targetView) targetView.classList.add("active");
 
-    const titles = { dashboard: "Dashboard", cadastrar: "Cadastrar", listar: "Usuários" };
-    const breadcrumbs = {
-        dashboard: "Início / Dashboard",
-        cadastrar: "Início / Cadastrar",
-        listar: "Início / Usuários",
-    };
-    document.getElementById("page-title").textContent = titles[viewName];
-    document.querySelector(".header-breadcrumb").textContent = breadcrumbs[viewName];
+    const titles = { dashboard: "Dashboard", cadastrar: "Cadastrar", listar: "Diretório" };
+    const pageTitle = document.getElementById("page-title");
+    if(pageTitle) pageTitle.textContent = titles[viewName];
+
+    // Clear lookup details and suggestions when switching views
+    clearLookupDetail();
+    closeLookupDropdown();
 
     if (viewName === "dashboard") loadDashboard();
-    if (viewName === "listar") loadUsers();
+    if (viewName === "listar") {
+        const searchInput = document.getElementById("search-input");
+        const query = searchInput ? searchInput.value.trim() : "";
+        loadUsers(query);
+    }
 }
 
 // ─── TOAST ─────────────────────────────────────────────────────
 function showToast(message, type = "success") {
     const toast = document.getElementById("toast");
-    toast.textContent = message;
-    toast.className = `toast ${type} show`;
-    setTimeout(() => toast.classList.remove("show"), 3500);
+    toast.innerHTML = type === "error" 
+        ? `<span style="color:var(--color-danger); margin-right:8px;">⚠️</span> ${message}`
+        : `<span style="color:var(--color-success); margin-right:8px;">✓</span> ${message}`;
+    toast.className = `apple-toast ${type} show`;
+    setTimeout(() => {
+        toast.classList.remove("show");
+    }, 3500);
 }
 
-// ─── TEMA (DARK MODE) ───────────────────────────────────────────
+// ─── TEMA (DARK / LIGHT) ────────────────────────────────────────
 function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute("data-theme");
-    const newTheme = currentTheme === "dark" ? "light" : "dark";
+    const current = document.documentElement.getAttribute("data-theme");
+    const next = current === "light" ? null : "light";
     
-    document.documentElement.setAttribute("data-theme", newTheme);
-    localStorage.setItem("autoPing_theme", newTheme);
+    if (next) {
+        document.documentElement.setAttribute("data-theme", "light");
+        localStorage.setItem("autoPing_theme", "light");
+    } else {
+        document.documentElement.removeAttribute("data-theme");
+        localStorage.setItem("autoPing_theme", "dark");
+    }
     
-    const label = document.getElementById("theme-label");
-    if (label) label.textContent = newTheme === "dark" ? "Modo Claro" : "Modo Escuro";
+    // Atualizar texto do botão
+    const btn = document.querySelector(".theme-toggle-btn");
+    if (btn) {
+        const isLight = next === "light";
+        btn.innerHTML = isLight
+            ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg> Modo Escuro'
+            : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg> Modo Claro';
+    }
 }
 
 function initTheme() {
-    const savedTheme = localStorage.getItem("autoPing_theme");
-    if (savedTheme === "dark") {
-        document.documentElement.setAttribute("data-theme", "dark");
-        const label = document.getElementById("theme-label");
-        if (label) label.textContent = "Modo Claro";
+    const saved = localStorage.getItem("autoPing_theme");
+    if (saved === "light") {
+        document.documentElement.setAttribute("data-theme", "light");
+        const btn = document.querySelector(".theme-toggle-btn");
+        if (btn) {
+            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg> Modo Escuro';
+        }
+    } else {
+        document.documentElement.removeAttribute("data-theme");
     }
 }
 
@@ -71,15 +140,16 @@ function copyToClipboard(text) {
 
 // ─── FAVORITOS E RECENTES (LOCALSTORAGE) ───────────────────────
 function getFavorites() {
-    return JSON.parse(localStorage.getItem('autoPing_favorites')) || [];
+    return (JSON.parse(localStorage.getItem('autoPing_favorites')) || []).map(Number).filter(id => !isNaN(id) && id > 0);
 }
 
 function getRecents() {
-    return JSON.parse(localStorage.getItem('autoPing_recents')) || [];
+    return (JSON.parse(localStorage.getItem('autoPing_recents')) || []).map(Number).filter(id => !isNaN(id) && id > 0);
 }
 
 function toggleFavorite(userId) {
     let favs = getFavorites();
+    userId = Number(userId);
     if (favs.includes(userId)) {
         favs = favs.filter(id => id !== userId);
         showToast("Removido dos favoritos", "success");
@@ -90,20 +160,20 @@ function toggleFavorite(userId) {
     localStorage.setItem('autoPing_favorites', JSON.stringify(favs));
     
     if (document.getElementById("view-dashboard").classList.contains("active")) {
-        loadDashboard();
-        
+        safeFetch("/usuarios").then(users => renderDashboardLists(users));
         const btn = document.getElementById(`fav-btn-${userId}`);
         if (btn) {
             btn.classList.toggle("active");
             btn.innerHTML = favs.includes(userId) 
-                ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
-                : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>';
+                ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
+                : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>';
         }
     }
 }
 
 function addRecent(userId) {
     let recents = getRecents();
+    userId = Number(userId);
     recents = recents.filter(id => id !== userId);
     recents.unshift(userId);
     if (recents.length > 5) recents.pop();
@@ -119,14 +189,14 @@ function openConfirmModal(title, message, confirmText, confirmClass, callback) {
     
     const confirmBtn = document.getElementById("btn-confirm-action");
     confirmBtn.textContent = confirmText;
-    confirmBtn.className = `btn ${confirmClass}`;
+    confirmBtn.className = `modal-btn ${confirmClass}`;
     
     modalCallback = callback;
-    document.getElementById("modal-overlay").classList.add("show");
+    document.getElementById("modal-overlay").classList.add("active");
 }
 
 function closeModal() {
-    document.getElementById("modal-overlay").classList.remove("show");
+    document.getElementById("modal-overlay").classList.remove("active");
     modalCallback = null;
 }
 
@@ -135,18 +205,13 @@ function openModal(userId) {
         "Confirmar Exclusão",
         "Tem certeza que deseja excluir este registro? Esta ação não poderá ser desfeita.",
         "Excluir",
-        "btn-danger",
+        "destructive",
         async () => {
             try {
-                const res = await fetch(`/usuarios/${userId}`, { method: "DELETE" });
-                const data = await res.json();
-                if (res.ok) {
-                    showToast(data.mensagem, "success");
-                    loadUsers();
-                    loadDashboard();
-                } else {
-                    showToast(data.erro, "error");
-                }
+                const data = await safeFetch(`/usuarios/${userId}`, { method: "DELETE" });
+                showToast(data?.mensagem, "success");
+                loadUsers();
+                loadDashboard();
             } catch {
                 showToast("Erro de conexão com o servidor.", "error");
             }
@@ -154,9 +219,9 @@ function openModal(userId) {
     );
 }
 
-document.getElementById("btn-confirm-action").addEventListener("click", () => {
+document.getElementById("btn-confirm-action").addEventListener("click", async () => {
     if (modalCallback) {
-        modalCallback();
+        await modalCallback();
     }
     closeModal();
 });
@@ -170,47 +235,49 @@ function addMachineField(machineData = null) {
     const card = document.createElement("div");
     card.className = "machine-item-card";
     card.innerHTML = `
-        <div class="machine-item-header">
-            <span class="machine-item-title">Máquina #${idx}</span>
-            <button type="button" class="btn-remove-machine" title="Remover esta máquina">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"></polyline>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                </svg>
-                Remover
-            </button>
-        </div>
-        <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 0;">
-            <div class="form-group" style="margin-bottom: 0;">
-                <label>Tipo</label>
-                <select class="machine-tipo">
+        <div class="form-group-section" style="margin-bottom: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-surface);">
+            <div class="form-group" style="background: var(--bg-surface-hover); padding: 12px 16px; display: flex; align-items: center; border-bottom: 1px solid var(--border-subtle);">
+                <label style="font-weight: 600; width: auto;" class="machine-item-title">Máquina #${idx}</label>
+                <div style="flex:1;"></div>
+                <button type="button" class="pill-btn danger btn-remove-machine" title="Remover esta máquina">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    Remover
+                </button>
+            </div>
+            <div class="form-group" style="padding: 12px 16px; display: flex; align-items: center;">
+                <label style="width: 120px;">Tipo</label>
+                <select class="apple-input machine-tipo" style="cursor:pointer; appearance:none; flex: 1;">
                     <option value="Notebook">Notebook</option>
                     <option value="Desktop">Desktop</option>
                     <option value="Minidesk">Minidesk</option>
                 </select>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label>Hostname</label>
-                <div class="input-with-action">
-                    <input type="text" class="machine-hostname" placeholder="Ex: BRA-PC-JSILVA" required>
-                    <button type="button" class="btn-ping machine-ping-btn" title="Pingar máquina">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                        </svg>
-                        Ping
-                    </button>
-                </div>
+            <div class="form-divider" style="margin-left: 136px; height: 1px; background: var(--border-subtle);"></div>
+            <div class="form-group" style="padding: 12px 16px; display: flex; align-items: center;">
+                <label style="width: 120px;">Hostname</label>
+                <input type="text" class="apple-input machine-hostname" placeholder="Ex: BRA-PC-JSILVA" style="flex: 1;" required>
+                <button type="button" class="pill-btn machine-ping-btn" title="Pingar máquina" style="margin-left: 8px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                    Ping
+                </button>
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label>Serial</label>
-                <input type="text" class="machine-serial" placeholder="Ex: 5CD1234XYZ">
+            <div class="form-divider" style="margin-left: 136px; height: 1px; background: var(--border-subtle);"></div>
+            <div class="form-group" style="padding: 12px 16px; display: flex; align-items: center;">
+                <label style="width: 120px;">Serial</label>
+                <input type="text" class="apple-input machine-serial" placeholder="Ex: 5CD1234XYZ" style="flex: 1;">
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
-                <label>IP</label>
-                <input type="text" class="machine-ip" placeholder="Ex: 10.0.0.15">
+            <div class="form-divider" style="margin-left: 136px; height: 1px; background: var(--border-subtle);"></div>
+            <div class="form-group" style="padding: 12px 16px; display: flex; align-items: center;">
+                <label style="width: 120px;">IP</label>
+                <input type="text" class="apple-input machine-ip" placeholder="Ex: 10.0.0.15" style="flex: 1;">
             </div>
+            <div class="machine-ping-result ping-result" style="display:none; margin: 12px 16px;"></div>
         </div>
-        <div class="machine-ping-result ping-result" style="display:none; margin-top:8px;"></div>
     `;
 
     if (machineData) {
@@ -242,29 +309,23 @@ function addMachineField(machineData = null) {
         pingResult.style.display = "none";
 
         try {
-            const res = await fetch(`/ping/${encodeURIComponent(hostname)}`);
-            const data = await res.json();
-
-            if (res.ok) {
-                ipInput.value = data.ip;
-                pingResult.style.display = "flex";
-                pingResult.className = `ping-result ${data.online ? "online" : "offline"}`;
-                pingResult.innerHTML = `
-                    <span class="ping-dot ${data.online ? "dot-online" : "dot-offline"}"></span>
-                    <span><strong>${hostname}</strong> — IP: <strong>${data.ip}</strong> — ${data.online ? "Online" : "Offline"}</span>
-                `;
-                showToast(`IP resolvido: ${data.ip}`, "success");
-            } else {
-                pingResult.style.display = "flex";
-                pingResult.className = "ping-result offline";
-                pingResult.innerHTML = `
-                    <span class="ping-dot dot-offline"></span>
-                    <span>${data.erro}</span>
-                `;
-                showToast(data.erro, "error");
-            }
-        } catch {
-            showToast("Erro ao tentar pingar a máquina.", "error");
+            const data = await safeFetch(`/ping/${encodeURIComponent(hostname)}`);
+            ipInput.value = data.ip;
+            pingResult.style.display = "flex";
+            pingResult.className = `ping-result ${data.online ? "online" : "offline"}`;
+            pingResult.innerHTML = `
+                <span class="ping-dot ${data.online ? "dot-online" : "dot-offline"}"></span>
+                <span><strong>${escapeHTML(hostname)}</strong> — IP: <strong>${escapeHTML(data.ip)}</strong> — ${data.online ? "Online" : "Offline"}</span>
+            `;
+            showToast(`IP resolvido: ${escapeHTML(data.ip)}`, "success");
+        } catch (e) {
+            pingResult.style.display = "flex";
+            pingResult.className = "ping-result offline";
+            pingResult.innerHTML = `
+                <span class="ping-dot dot-offline"></span>
+                <span>${escapeHTML(e.message)}</span>
+            `;
+            showToast(e.message || "Erro ao tentar pingar a máquina.", "error");
         }
 
         pingBtn.disabled = false;
@@ -292,19 +353,23 @@ document.getElementById("btn-add-machine").addEventListener("click", () => {
 
 // Helper para renderizar tags das máquinas nas tabelas
 function renderMachineTags(maquinas) {
-    if (!maquinas || maquinas.length === 0) return '<span style="color:var(--text-muted)">Sem máquinas</span>';
+    if (!maquinas || maquinas.length === 0) return 'Sem máquinas';
     return maquinas.map(m => {
-        const typeClass = m.Tipo ? m.Tipo.toLowerCase() : 'notebook';
         const typeIcon = m.Tipo === 'Desktop' ? '🖥️' : (m.Tipo === 'Minidesk' ? '📟' : '💻');
-        return `<span class="machine-tag ${typeClass}" title="Serial: ${m.Serial || '—'} | IP: ${m.IP || '—'}">${typeIcon} ${m.Hostname}</span>`;
-    }).join("");
+        return `${typeIcon} ${escapeHTML(m.Hostname)}`;
+    }).join(", ");
 }
 
 // ─── DASHBOARD ─────────────────────────────────────────────────
 async function loadDashboard() {
+    if (dashboardAbortController) {
+        dashboardAbortController.abort();
+    }
+    dashboardAbortController = new AbortController();
+
     try {
-        const res = await fetch("/usuarios");
-        const users = await res.json();
+        const users = await safeFetch("/usuarios");
+        
         const total = users.length;
         
         let maquinasTotal = 0;
@@ -320,23 +385,7 @@ async function loadDashboard() {
 
         renderDashboardLists(users);
 
-        const dbTbody = document.getElementById("dashboard-table-body");
-        if (dbTbody) {
-            const lastUsers = users.slice().reverse().slice(0, 5);
-            if (lastUsers.length === 0) {
-                dbTbody.innerHTML = '<tr><td colspan="5" class="empty-state">Nenhum registro encontrado.</td></tr>';
-            } else {
-                dbTbody.innerHTML = lastUsers.map((u) => `
-                    <tr>
-                        <td><span class="mono">${u.RACF || "—"}</span></td>
-                        <td><span class="mono">${u.Funcional || "—"}</span></td>
-                        <td>${u.Nome || "—"}</td>
-                        <td>${renderMachineTags(u.maquinas)}</td>
-                        <td><span class="badge badge-${(u.Status || "ativo").toLowerCase()}"><span class="badge-dot"></span>${u.Status || "Ativo"}</span></td>
-                    </tr>
-                `).join("");
-            }
-        }
+        // Tabela removida do dashboard no novo design
     } catch (error) {
         console.error("Erro ao carregar dashboard", error);
     }
@@ -351,13 +400,14 @@ function renderDashboardLists(allUsers) {
 
     const renderMiniCard = (u) => {
         const hostsText = u.maquinas && u.maquinas.length > 0 
-            ? u.maquinas.map(m => m.Hostname).join(", ") 
+            ? u.maquinas.map(m => escapeHTML(m.Hostname)).join(", ") 
             : "Sem máquinas";
+        const displayName = (u.RACF || u.Nome).replace(/"/g, '&quot;');
         return `
-            <div class="mini-card" onclick="selectUserForLookup(${u.ID}, '${u.RACF || u.Nome}')">
+            <div class="mini-card" data-name="${escapeHTML(displayName)}" onclick="event.stopPropagation(); selectUserForLookup(${u.ID}, this.dataset.name)">
                 <div class="mini-card-info">
-                    <span class="mini-card-name">${u.Nome}</span>
-                    <span class="mini-card-meta">RACF: ${u.RACF || "-"} | Maqs: ${hostsText}</span>
+                    <span class="mini-card-name">${escapeHTML(u.Nome)}</span>
+                    <span class="mini-card-meta">RACF: ${escapeHTML(u.RACF || "-")} | Maqs: ${hostsText}</span>
                 </div>
                 <button class="btn-favorite ${favIds.includes(u.ID) ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite(${u.ID})" title="Favoritar">
                     ${favIds.includes(u.ID) 
@@ -371,8 +421,13 @@ function renderDashboardLists(allUsers) {
     const favUsers = favIds.map(id => allUsers.find(u => u.ID === id)).filter(Boolean);
     const recUsers = recentIds.map(id => allUsers.find(u => u.ID === id)).filter(Boolean);
 
-    favList.innerHTML = favUsers.length > 0 ? favUsers.map(renderMiniCard).join("") : '<div style="color:var(--text-muted); font-size: 0.85rem; padding: 8px;">Nenhum favorito salvo.</div>';
-    recList.innerHTML = recUsers.length > 0 ? recUsers.map(renderMiniCard).join("") : '<div style="color:var(--text-muted); font-size: 0.85rem; padding: 8px;">Nenhuma busca recente.</div>';
+    favList.innerHTML = favUsers.length > 0 
+        ? favUsers.map(renderMiniCard).join("") 
+        : '<div class="rich-empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg><div>Nenhum favorito salvo.<br><span style="font-size:0.8rem;opacity:0.7;">Busque um colaborador e clique na estrela.</span></div></div>';
+    
+    recList.innerHTML = recUsers.length > 0 
+        ? recUsers.map(renderMiniCard).join("") 
+        : '<div class="rich-empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg><div>Nenhuma busca recente.<br><span style="font-size:0.8rem;opacity:0.7;">Os últimos pesquisados aparecerão aqui.</span></div></div>';
 }
 
 // ─── PAGINAÇÃO ────────────────────────────────────────────────
@@ -445,55 +500,55 @@ function renderUsersPage() {
     const end = start + USERS_PER_PAGE;
     const pageUsers = allUsersCache.slice(start, end);
 
-    const tbody = document.getElementById("users-table-body");
-    tbody.innerHTML = pageUsers.map((u) => `
-        <tr>
-            <td><span class="mono">${u.RACF || "—"}</span></td>
-            <td><span class="mono">${u.Funcional || "—"}</span></td>
-            <td>${u.Nome || "—"}</td>
-            <td>${renderMachineTags(u.maquinas)}</td>
-            <td><span class="badge badge-${(u.Status || "ativo").toLowerCase()}"><span class="badge-dot"></span>${u.Status || "Ativo"}</span></td>
-            <td>
-                <div class="action-buttons">
-                    <button class="btn-icon" title="Editar" onclick="editUser(${u.ID})">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                    </button>
-                    <button class="btn-icon delete" title="Excluir" onclick="openModal(${u.ID})">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                    </button>
-                </div>
-            </td>
-        </tr>
+    const ul = document.getElementById("users-grouped-list");
+    ul.innerHTML = pageUsers.map((u) => `
+        <li class="grouped-list-item stagger-item">
+            <div class="list-avatar">${u.Nome ? escapeHTML(u.Nome.charAt(0).toUpperCase()) : "?"}</div>
+            <div class="list-content">
+                <span class="list-title">${escapeHTML(u.Nome) || "—"}</span>
+                <span class="list-subtitle">RACF: ${escapeHTML(u.RACF || "—")} | Funcional: ${escapeHTML(u.Funcional || "—")} | ${renderMachineTags(u.maquinas)}</span>
+            </div>
+            <div class="list-actions">
+                <button class="pill-btn" onclick="editUser(${u.ID})">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Editar
+                </button>
+                <button class="pill-btn danger" onclick="openModal(${u.ID})">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    Apagar
+                </button>
+            </div>
+        </li>
     `).join("");
 
     renderPagination(allUsersCache.length);
 }
 
 // ─── LISTAR USUÁRIOS ───────────────────────────────────────────
-async function loadUsers(query = "") {
+async function loadUsers(searchValue) {
     try {
-        const url = query ? `/usuarios?busca=${encodeURIComponent(query)}` : "/usuarios";
-        const res = await fetch(url);
-        const users = await res.json();
+        let url = "/usuarios";
+        if (searchValue) {
+            url += `?busca=${encodeURIComponent(searchValue)}`;
+        }
+        const users = await safeFetch(url);
+        
 
         allUsersCache = users;
         currentPage = 1;
 
-        const tbody = document.getElementById("users-table-body");
-        if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Nenhum usuário encontrado.</td></tr>';
-            const pag = document.getElementById("pagination-controls");
-            if (pag) pag.innerHTML = "";
-            return;
-        }
+        const updateList = () => {
+            const ul = document.getElementById("users-grouped-list");
+            if (users.length === 0) {
+                ul.innerHTML = '<div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>Nenhum usuário encontrado.</div>';
+                const pag = document.getElementById("pagination-controls");
+                if (pag) pag.innerHTML = "";
+                return;
+            }
+            renderUsersPage();
+        };
 
-        renderUsersPage();
+        updateList();
     } catch {
         showToast("Erro ao carregar a lista de usuários.", "error");
     }
@@ -525,7 +580,6 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
             }
         });
     }
-
     const payload = {
         RACF: document.getElementById("racf").value.trim(),
         Funcional: document.getElementById("funcional").value.trim(),
@@ -553,24 +607,38 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
 
         const data = await res.json();
         if (res.ok) {
-            showToast(data.mensagem, "success");
+            showToast(data?.mensagem, "success");
+            
+            // Fix BUG #6: save name before cancelEdit()
+            const nameValue = document.getElementById("nome").value.trim();
             cancelEdit();
+            loadDashboard();
+            loadUsers();
+            if (editId) {
+                switchView(returnViewAfterEdit);
+                if (returnViewAfterEdit === "dashboard" && currentLookupUserId == editId) {
+                    selectUserForLookup(editId, nameValue);
+                }
+            }
         } else {
-            showToast(data.erro, "error");
+            showToast(escapeHTML(data.erro), "error");
         }
-    } catch {
+    } catch (e) {
+        console.error(e);
         showToast("Erro de conexão com o servidor.", "error");
     }
 });
 
 async function editUser(userId) {
     try {
-        const res = await fetch(`/usuarios/${userId}`);
-        const user = await res.json();
+        const user = await safeFetch(`/usuarios/${userId}`);
 
-        if (!res.ok) {
-            showToast(user.erro, "error");
-            return;
+
+        const activeNav = document.querySelector(".nav-item.active");
+        if (activeNav) {
+            returnViewAfterEdit = activeNav.dataset.view;
+        } else {
+            returnViewAfterEdit = "listar";
         }
 
         switchView("cadastrar");
@@ -627,6 +695,11 @@ function cancelEdit() {
     document.getElementById("btn-cancel").style.display = "none";
 }
 
+function cancelEditBtnClicked() {
+    cancelEdit();
+    switchView(returnViewAfterEdit);
+}
+
 // ─── CONSULTAR COLABORADOR ─────────────────────────────────────
 let lookupTimeout;
 document.getElementById("lookup-input").addEventListener("input", (e) => {
@@ -644,71 +717,84 @@ document.getElementById("lookup-input").addEventListener("input", (e) => {
 });
 
 document.addEventListener("click", (e) => {
-    const dropdown = document.getElementById("lookup-dropdown");
+    const resultsDiv = document.getElementById("lookup-results");
     const input = document.getElementById("lookup-input");
-    if (dropdown && !dropdown.contains(e.target) && e.target !== input) {
+    if (resultsDiv && !resultsDiv.contains(e.target) && e.target !== input) {
         closeLookupDropdown();
     }
 });
 
 async function lookupUserSuggestions(query) {
-    const dropdown = document.getElementById("lookup-dropdown");
-    if (!dropdown) return;
+    const resultsDiv = document.getElementById("lookup-results");
+    const emptyDiv = document.getElementById("lookup-empty");
     
     try {
-        const res = await fetch(`/usuarios?busca=${encodeURIComponent(query)}`);
-        const users = await res.json();
+        const users = await safeFetch(`/usuarios?busca=${encodeURIComponent(query)}`);
+        
         
         if (users.length === 0) {
-            dropdown.innerHTML = '<div style="padding: 12px 16px; color: var(--text-muted); font-size: 0.85rem; text-align: center;">Nenhum colaborador encontrado</div>';
-            dropdown.style.display = "block";
+            resultsDiv.style.display = "none";
+            emptyDiv.style.display = "block";
+            emptyDiv.textContent = "Nenhum colaborador encontrado.";
             return;
         }
         
-        dropdown.innerHTML = users.map((u) => {
-            const hosts = u.maquinas && u.maquinas.length > 0 ? u.maquinas.map(m => m.Hostname).join(", ") : "Sem máquinas";
+        resultsDiv.style.display = "block";
+        emptyDiv.style.display = "none";
+        resultsDiv.innerHTML = users.slice(0, 8).map((u) => {
+            const hosts = u.maquinas && u.maquinas.length > 0 ? u.maquinas.map(m => escapeHTML(m.Hostname)).join(", ") : "Sem máquinas";
+            const displayName = (u.RACF || u.Nome).replace(/"/g, '&quot;');
             return `
-                <div class="lookup-dropdown-item" onclick="selectUserForLookup(${u.ID}, '${u.RACF || u.Nome}'); closeLookupDropdown();">
-                    <span class="lookup-dropdown-name">${u.Nome}</span>
-                    <span class="lookup-dropdown-meta">RACF: ${u.RACF || "-"} | Maqs: ${hosts}</span>
+                <div class="mini-card" data-name="${escapeHTML(displayName)}" onclick="event.stopPropagation(); selectUserForLookup(${u.ID}, this.dataset.name)"
+                     style="cursor:pointer;">
+                    <div class="mini-card-info">
+                        <span class="mini-card-name">${escapeHTML(u.Nome)}</span>
+                        <span class="mini-card-meta">RACF: ${escapeHTML(u.RACF || "-")} | Maqs: ${hosts}</span>
+                    </div>
                 </div>
             `;
         }).join("");
-        dropdown.style.display = "block";
         
     } catch {
-        dropdown.innerHTML = '<div style="padding: 12px 16px; color: var(--red); font-size: 0.85rem; text-align: center;">Erro ao carregar sugestões</div>';
-        dropdown.style.display = "block";
+        resultsDiv.style.display = "none";
+        emptyDiv.style.display = "block";
+        emptyDiv.textContent = "Erro ao carregar sugestões.";
     }
 }
 
 function closeLookupDropdown() {
-    const dropdown = document.getElementById("lookup-dropdown");
-    if (dropdown) {
-        dropdown.style.display = "none";
-    }
+    const resultsDiv = document.getElementById("lookup-results");
+    const emptyDiv = document.getElementById("lookup-empty");
+    if (resultsDiv) resultsDiv.style.display = "none";
+    if (emptyDiv) emptyDiv.style.display = "none";
 }
 
 async function selectUserForLookup(userId, userDisplayValue) {
     const input = document.getElementById('lookup-input');
-    input.value = userDisplayValue;
+    if (input) input.value = userDisplayValue;
     
-    const resultsDiv = document.getElementById("lookup-results");
-    const emptyDiv = document.getElementById("lookup-empty");
-    resultsDiv.style.display = "block";
-    emptyDiv.style.display = "none";
-    resultsDiv.innerHTML = `<div style="text-align: center; padding: 20px;"><span class="spinner"></span> Carregando colaborador...</div>`;
+    // Hide the suggestions dropdown list
+    closeLookupDropdown();
+    
+    currentLookupUserId = userId;
+    currentLookupUserName = userDisplayValue;
+
+    const detailDiv = document.getElementById("lookup-detail");
+    if (detailDiv) {
+        detailDiv.style.display = "block";
+        detailDiv.style.animation = "none";
+        // Force reflow
+        void detailDiv.offsetWidth;
+        detailDiv.style.animation = "modalSlideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards";
+        
+        detailDiv.innerHTML = `<div class="apple-card" style="text-align: center; padding: 24px; margin-top: 16px; min-height: 200px; display: flex; align-items: center; justify-content: center;"><span class="spinner"></span> <span style="margin-left: 8px;">Carregando colaborador...</span></div>`;
+    }
     
     try {
-        const res = await fetch(`/usuarios/${userId}`);
-        const user = await res.json();
+        const user = await safeFetch(`/usuarios/${userId}`);
         
-        if (!res.ok) {
-            resultsDiv.style.display = "none";
-            emptyDiv.style.display = "block";
-            emptyDiv.textContent = user.erro || "Colaborador não encontrado.";
-            return;
-        }
+        
+        
         
         addRecent(user.ID);
         
@@ -719,43 +805,44 @@ async function selectUserForLookup(userId, userDisplayValue) {
             machinesHtml = user.maquinas.map((m, index) => {
                 const typeIcon = m.Tipo === 'Desktop' ? '🖥️' : (m.Tipo === 'Minidesk' ? '📟' : '💻');
                 return `
-                    <div class="lookup-machine-block" style="border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; background: rgba(255, 255, 255, 0.02); margin-top: 16px;">
+                    <div class="lookup-machine-block" style="border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; background: var(--bg-surface-hover); margin-top: 16px;">
                         <div style="font-weight:600; font-size:0.95rem; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
-                            <span>${typeIcon} ${m.Tipo}</span>
-                            <span class="mono" style="font-size:0.85rem; padding: 2px 6px; background:var(--bg-hover); border-radius:var(--radius-sm); border:1px solid var(--border);">${m.Hostname}</span>
+                            <span>${typeIcon}</span>
+                            <span>${escapeHTML(m.Tipo)}</span>
+                            <span class="mono" style="font-size:0.85rem; padding: 2px 6px; background:var(--bg-body); border-radius:var(--radius-sm);">${escapeHTML(m.Hostname)}</span>
                         </div>
-                        <div class="lookup-card-body" style="border:none; padding:0; margin-bottom:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
+                        <div class="lookup-card-body" style="border:none; padding:0; margin-bottom:16px; display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px;">
                             <div class="lookup-field">
-                                <span class="lookup-label">Serial</span>
-                                <span class="lookup-value mono">${m.Serial || '—'}</span>
+                                <span style="font-size: 0.75rem; color: var(--text-secondary); display:block;">Serial</span>
+                                <span class="mono" style="font-size: 0.85rem;">${escapeHTML(m.Serial || '—')}</span>
                             </div>
                             <div class="lookup-field">
-                                <span class="lookup-label">IP Cadastrado</span>
-                                <span class="lookup-value mono">${m.IP || '—'}</span>
+                                <span style="font-size: 0.75rem; color: var(--text-secondary); display:block;">IP Cadastrado</span>
+                                <span class="mono" style="font-size: 0.85rem;">${escapeHTML(m.IP || '—')}</span>
                             </div>
                             <div class="lookup-field">
-                                <span class="lookup-label">IP Atual</span>
-                                <span class="lookup-value mono" id="live-ip-${user.ID}-${index}">
-                                    <span class="spinner"></span> Verificando...
+                                <span style="font-size: 0.75rem; color: var(--text-secondary); display:block;">IP Atual</span>
+                                <span class="mono" style="font-size: 0.85rem; display:inline-flex; align-items:center; gap:4px;" id="live-ip-${user.ID}-${index}">
+                                    <span class="spinner"></span> ...
                                 </span>
                             </div>
                             <div class="lookup-field">
-                                <span class="lookup-label">Status da Máquina</span>
-                                <span class="lookup-value" id="live-status-${user.ID}-${index}">
-                                    <span class="spinner"></span> Verificando...
+                                <span style="font-size: 0.75rem; color: var(--text-secondary); display:block;">Status</span>
+                                <span style="font-size: 0.85rem; display:inline-flex; align-items:center; gap:4px;" id="live-status-${user.ID}-${index}">
+                                    <span class="spinner"></span> ...
                                 </span>
                             </div>
                         </div>
-                        <div style="display: flex; gap: 12px; margin-top: 12px;">
-                            <button class="btn btn-danger" onclick="confirmShutdownSpecific('${m.Hostname}', 'live-ip-${user.ID}-${index}', '${m.IP}', '${user.Nome} (${m.Tipo})')" style="padding: 6px 12px; font-size: 0.75rem; border-radius:var(--radius-sm);">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:-2px;">
+                        <div style="display: flex; gap: 8px;">
+                            <button class="pill-btn danger" onclick="confirmShutdownSpecific('${escapeHTML(m.Hostname)}', 'live-ip-${user.ID}-${index}', '${escapeHTML(m.IP)}', '${escapeHTML(user.Nome)} (${escapeHTML(m.Tipo)})')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
                                     <line x1="12" y1="2" x2="12" y2="12"></line>
                                 </svg>
                                 Desligar
                             </button>
-                            <button class="btn btn-secondary" onclick="confirmRestartSpecific('${m.Hostname}', 'live-ip-${user.ID}-${index}', '${m.IP}', '${user.Nome} (${m.Tipo})')" style="padding: 6px 12px; font-size: 0.75rem; border-radius:var(--radius-sm); border-color: var(--warning); color: var(--warning); background: transparent;">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-top:-2px;">
+                            <button class="pill-btn" onclick="confirmRestartSpecific('${escapeHTML(m.Hostname)}', 'live-ip-${user.ID}-${index}', '${escapeHTML(m.IP)}', '${escapeHTML(user.Nome)} (${escapeHTML(m.Tipo)})')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
                                 </svg>
                                 Reiniciar
@@ -768,40 +855,54 @@ async function selectUserForLookup(userId, userDisplayValue) {
             machinesHtml = `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.85rem;">Nenhuma máquina vinculada a este colaborador.</div>`;
         }
 
-        resultsDiv.innerHTML = `
-            <div class="lookup-card" id="lookup-card-${user.ID}">
-                <div class="lookup-card-header" style="border-bottom: 1px solid var(--border); padding-bottom: 16px;">
-                    <div class="lookup-card-title-row" style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-                        <div style="display:flex; align-items:center; gap:16px;">
-                            <div class="lookup-avatar">${user.Nome.charAt(0).toUpperCase()}</div>
-                            <div class="lookup-info">
-                                <span class="lookup-name">${user.Nome}</span>
-                                <span class="lookup-meta">RACF: <strong>${user.RACF || "-"}</strong> &nbsp;|&nbsp; Funcional: <strong>${user.Funcional || "-"}</strong></span>
+        const renderDetail = () => {
+            if (detailDiv) {
+                detailDiv.innerHTML = `
+                    <div class="apple-card" id="lookup-card-${user.ID}" style="margin-top: 16px; padding: 24px; animation: fadeIn 0.3s ease-out forwards;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 16px;">
+                            <div style="display:flex; align-items:center; gap:16px;">
+                                <div class="list-avatar">${escapeHTML(user.Nome.charAt(0).toUpperCase())}</div>
+                                <div style="display: flex; flex-direction: column;">
+                                    <span style="font-weight: 600; font-size: 1.1rem;">${escapeHTML(user.Nome)}</span>
+                                    <span style="font-size: 0.85rem; color: var(--text-secondary);">RACF: <strong>${user.RACF || "-"}</strong> &nbsp;|&nbsp; Funcional: <strong>${user.Funcional || "-"}</strong></span>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <span class="ping-result ${(user.Status || 'ativo').toLowerCase() === 'ativo' ? 'online' : 'offline'}" style="margin:0; padding: 4px 12px; border-radius: 999px;">
+                                    <span class="ping-dot ${(user.Status || 'ativo').toLowerCase() === 'ativo' ? 'dot-online' : 'dot-offline'}"></span>
+                                    ${user.Status || 'Ativo'}
+                                </span>
+                                <button class="icon-btn" onclick="editUser(${user.ID})" title="Editar">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    </svg>
+                                </button>
+                                <button id="fav-btn-${user.ID}" class="icon-btn ${favs.includes(user.ID) ? 'active' : ''}" onclick="toggleFavorite(${user.ID})" title="Favoritar">
+                                    ${favs.includes(user.ID) 
+                                        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
+                                        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'}
+                                </button>
+                                <button class="pill-btn danger" onclick="clearLookupDetail()" title="Fechar">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                    Fechar
+                                </button>
                             </div>
                         </div>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <button class="btn-icon" title="Editar Colaborador" onclick="editUser(${user.ID})" style="background:transparent; border-color:var(--border); width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                </svg>
-                            </button>
-                            <button id="fav-btn-${user.ID}" class="btn-favorite ${favs.includes(user.ID) ? 'active' : ''}" onclick="toggleFavorite(${user.ID})" title="Favoritar" style="width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center;">
-                                ${favs.includes(user.ID) 
-                                    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'
-                                    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>'}
-                            </button>
+                        
+                        <div style="padding-top: 16px;">
+                            <div style="font-weight:600; font-size:0.8rem; letter-spacing: 0.5px; color:var(--text-secondary);">MÁQUINAS CADASTRADAS</div>
+                            ${machinesHtml}
                         </div>
                     </div>
-                    <span class="badge badge-${(user.Status || 'ativo').toLowerCase()}" style="margin-top:12px;"><span class="badge-dot"></span>${user.Status || 'Ativo'}</span>
-                </div>
-                
-                <div style="padding: 0 20px 20px 20px;">
-                    <div style="font-weight:600; font-size:0.85rem; color:var(--text-muted); border-bottom:1px solid var(--border); padding-bottom:8px; margin-top:16px;">MÁQUINAS CADASTRADAS</div>
-                    ${machinesHtml}
-                </div>
-            </div>
-        `;
+                `;
+            }
+        };
+
+        renderDetail();
         
         if (user.maquinas && user.maquinas.length > 0) {
             user.maquinas.forEach((m, index) => {
@@ -809,14 +910,39 @@ async function selectUserForLookup(userId, userDisplayValue) {
             });
         }
         
-        loadDashboard();
+        // Atualiza a lista de recentes silenciosamente
+        if (document.getElementById("view-dashboard").classList.contains("active")) {
+            safeFetch("/usuarios").then(users => renderDashboardLists(users));
+        }
         
     } catch (error) {
         console.error("Erro ao carregar lookup", error);
-        resultsDiv.style.display = "none";
-        emptyDiv.style.display = "block";
-        emptyDiv.textContent = "Erro ao carregar colaborador.";
+        if (detailDiv) {
+            detailDiv.innerHTML = `<div class="apple-card" style="text-align: center; padding: 24px; margin-top: 16px; color: var(--color-danger);">Erro ao carregar colaborador.</div>`;
+        }
     }
+}
+
+function clearLookupDetail() {
+    const doClear = () => {
+        currentLookupUserId = null;
+        currentLookupUserName = null;
+        const detailDiv = document.getElementById("lookup-detail");
+        if (detailDiv) {
+            detailDiv.style.animation = "fadeOut 0.2s ease-out forwards";
+            setTimeout(() => {
+                detailDiv.innerHTML = "";
+                detailDiv.style.display = "none";
+                detailDiv.style.animation = "";
+            }, 200);
+        }
+        const input = document.getElementById('lookup-input');
+        if (input) {
+            input.value = "";
+        }
+    };
+    
+    doClear();
 }
 
 async function autoPingSpecific(userId, index, hostname) {
@@ -824,25 +950,27 @@ async function autoPingSpecific(userId, index, hostname) {
     const statusEl = document.getElementById(`live-status-${userId}-${index}`);
 
     try {
-        const res = await fetch(`/ping/${encodeURIComponent(hostname)}`);
-        const data = await res.json();
+        const data = await safeFetch(`/ping/${encodeURIComponent(hostname)}`, {
+            signal: dashboardAbortController ? dashboardAbortController.signal : undefined
+        });
+        
 
-        if (res.ok) {
+        if (true) {
             if (ipEl) {
-                ipEl.innerHTML = `${data.ip} <button type="button" class="btn-copy" onclick="copyToClipboard('${data.ip}')" title="Copiar IP"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`;
+                ipEl.innerHTML = `${escapeHTML(data.ip)} <button type="button" class="btn-copy" onclick="copyToClipboard('${escapeHTML(data.ip)}')" title="Copiar IP"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`;
             }
             if (statusEl) {
                 statusEl.innerHTML = data.online
-                    ? '<span class="ping-dot dot-online"></span> <span style="color:var(--green)">Online</span>'
-                    : '<span class="ping-dot dot-offline"></span> <span style="color:var(--red)">Offline</span>';
+                    ? '<span class="ping-dot dot-online"></span> <span style="color:var(--color-success)">Online</span>'
+                    : '<span class="ping-dot dot-offline"></span> <span style="color:var(--color-danger)">Offline</span>';
             }
         } else {
             if (ipEl) ipEl.textContent = "Não resolvido";
-            if (statusEl) statusEl.innerHTML = '<span class="ping-dot dot-offline"></span> <span style="color:var(--red)">Não acessível</span>';
+            if (statusEl) statusEl.innerHTML = '<span class="ping-dot dot-offline"></span> <span style="color:var(--color-danger)">Não acessível</span>';
         }
     } catch {
         if (ipEl) ipEl.textContent = "Erro";
-        if (statusEl) statusEl.innerHTML = '<span style="color:var(--red)">Erro na conexão</span>';
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--color-danger)">Erro na conexão</span>';
     }
 }
 
@@ -887,10 +1015,20 @@ function confirmShutdownSpecific(hostname, liveIpElementId, registeredIp, displa
     
     const cmd = `shutdown /s /f /t 0 /m \\\\${target}`;
     const messageHtml = `
-        <p style="margin-bottom: 12px;">Copie o comando abaixo e execute-o no seu CMD de Administrador para <strong>desligar</strong> a máquina de <strong>${displayName}</strong>:</p>
-        <div style="position:relative; margin-top:12px;">
+        <p style="margin-bottom: 12px;">Escolha como deseja <strong>desligar</strong> a máquina de <strong>${escapeHTML(displayName)}</strong> (${target}):</p>
+        
+        <div style="background: var(--bg-surface-hover); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;">
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">1. Executar via Jump Server (Configurado nas configurações)</p>
+            <button type="button" class="apple-btn-primary" style="width: 100%; background: var(--color-danger); color: white;" onclick="executeJumpAction('shutdown', '${target}')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+                Executar Automático (Jump Server)
+            </button>
+        </div>
+
+        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">2. Ou copie o comando para rodar manualmente:</p>
+        <div style="position:relative;">
             <input type="text" id="cmd-to-copy" value="${cmd}" readonly 
-                style="width:100%; padding:12px 40px 12px 12px; font-family: Consolas, monospace; font-size:0.85rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-hover); color:var(--text-primary); outline:none;">
+                style="width:100%; padding:12px 40px 12px 12px; font-family: Consolas, monospace; font-size:0.85rem; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); background:var(--bg-surface-hover); color:var(--text-primary); outline:none;">
             <button type="button" class="btn-copy" onclick="copyModalCommand()" title="Copiar Comando" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); margin:0; padding:4px; display:inline-flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             </button>
@@ -898,13 +1036,11 @@ function confirmShutdownSpecific(hostname, liveIpElementId, registeredIp, displa
     `;
     
     openConfirmModal(
-        "Desligar Máquina (Gerar Comando)",
+        "Desligar Máquina",
         messageHtml,
-        "Copiar e Fechar",
-        "btn-danger",
-        () => {
-            copyModalCommand();
-        }
+        "Fechar",
+        "primary",
+        () => {}
     );
 }
 
@@ -917,10 +1053,20 @@ function confirmRestartSpecific(hostname, liveIpElementId, registeredIp, display
     
     const cmd = `shutdown /r /f /t 0 /m \\\\${target}`;
     const messageHtml = `
-        <p style="margin-bottom: 12px;">Copie o comando abaixo e execute-o no seu CMD de Administrador para <strong>reiniciar</strong> a máquina de <strong>${displayName}</strong>:</p>
-        <div style="position:relative; margin-top:12px;">
+        <p style="margin-bottom: 12px;">Escolha como deseja <strong>reiniciar</strong> a máquina de <strong>${escapeHTML(displayName)}</strong> (${target}):</p>
+        
+        <div style="background: var(--bg-surface-hover); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;">
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">1. Executar via Jump Server (Configurado nas configurações)</p>
+            <button type="button" class="apple-btn-primary" style="width: 100%;" onclick="executeJumpAction('restart', '${target}')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+                Executar Automático (Jump Server)
+            </button>
+        </div>
+
+        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">2. Ou copie o comando para rodar manualmente:</p>
+        <div style="position:relative;">
             <input type="text" id="cmd-to-copy" value="${cmd}" readonly 
-                style="width:100%; padding:12px 40px 12px 12px; font-family: Consolas, monospace; font-size:0.85rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-hover); color:var(--text-primary); outline:none;">
+                style="width:100%; padding:12px 40px 12px 12px; font-family: Consolas, monospace; font-size:0.85rem; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); background:var(--bg-surface-hover); color:var(--text-primary); outline:none;">
             <button type="button" class="btn-copy" onclick="copyModalCommand()" title="Copiar Comando" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); margin:0; padding:4px; display:inline-flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             </button>
@@ -928,22 +1074,133 @@ function confirmRestartSpecific(hostname, liveIpElementId, registeredIp, display
     `;
     
     openConfirmModal(
-        "Reiniciar Máquina (Gerar Comando)",
+        "Reiniciar Máquina",
         messageHtml,
-        "Copiar e Fechar",
-        "btn-primary",
-        () => {
-            copyModalCommand();
-        }
+        "Fechar",
+        "primary",
+        () => {}
     );
+}
+
+// ─── CONFIGURAÇÕES DO JUMP SERVER ──────────────────────────────
+function openJumpConfigModal() {
+    loadJumpConfig();
+    document.getElementById("jump-config-overlay").classList.add("active");
+}
+
+function closeJumpConfigModal() {
+    document.getElementById("jump-config-overlay").classList.remove("active");
+}
+
+function saveJumpConfig() {
+    const config = {
+        rdpPath: document.getElementById("jump-rdp-path").value.trim(),
+        ip: document.getElementById("jump-ip").value.trim(),
+        user: document.getElementById("jump-user").value.trim(),
+        cmdShutdown: document.getElementById("jump-cmd-shutdown").value.trim() || "C:\\Scripts\\desligar.bat",
+        cmdRestart: document.getElementById("jump-cmd-restart").value.trim() || "C:\\Scripts\\reiniciar.bat"
+    };
+    const pass = document.getElementById("jump-pass").value.trim();
+    if (pass) {
+        sessionStorage.setItem("autoPing_jumpPass", pass);
+    }
+    
+    if (!config.rdpPath && !config.ip) {
+        showToast("Preencha o caminho do .rdp ou o IP do Jump Server para salvar.", "error");
+        return;
+    }
+    
+    localStorage.setItem("autoPing_jumpConfig", JSON.stringify(config));
+    showToast("Configurações do Jump Server salvas!", "success");
+    closeJumpConfigModal();
+}
+
+function loadJumpConfig() {
+    const saved = localStorage.getItem("autoPing_jumpConfig");
+    if (saved) {
+        const config = JSON.parse(saved);
+        document.getElementById("jump-rdp-path").value = config.rdpPath || "";
+        document.getElementById("jump-ip").value = config.ip || "";
+        document.getElementById("jump-user").value = config.user || "";
+        document.getElementById("jump-pass").value = sessionStorage.getItem("autoPing_jumpPass") || "";
+        document.getElementById("jump-cmd-shutdown").value = config.cmdShutdown || "";
+        document.getElementById("jump-cmd-restart").value = config.cmdRestart || "";
+    }
+}
+
+async function executeJumpAction(action, targetIp) {
+    const saved = localStorage.getItem("autoPing_jumpConfig");
+    if (!saved) {
+        closeModal();
+        showToast("Configure seu Jump Server primeiro!", "error");
+        openJumpConfigModal();
+        return;
+    }
+    
+    const config = JSON.parse(saved);
+    const command = action === 'shutdown' ? config.cmdShutdown : config.cmdRestart;
+    const fullCmdToCopy = `${command} ${targetIp}`;
+    
+    // Copiar para a área de transferência do usuário como medida de segurança!
+    try {
+        await navigator.clipboard.writeText(fullCmdToCopy);
+    } catch(err) {
+        console.warn("Não foi possível copiar para o clipboard automaticamente", err);
+    }
+
+    showToast("Comando copiado! Cole no CMD do Jump Server...", "success");
+    closeModal();
+    
+    try {
+        const payload = {
+            rdp_path: config.rdpPath,
+            jump_ip: config.ip,
+            jump_user: config.user,
+            jump_pass: sessionStorage.getItem("autoPing_jumpPass") || "",
+            command: command,
+            target_ip: targetIp
+        };
+        
+        const data = await safeFetch("/api/jump-action", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        console.log(data?.mensagem);
+    } catch (error) {
+        showToast("Falha ao comunicar com o backend.", "error");
+    }
 }
 
 // ─── INICIALIZAÇÃO ─────────────────────────────────────────────
 initTheme();
 loadDashboard();
 
+// Preencher a data do Hero Banner
+const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+const todayDate = new Date().toLocaleDateString('pt-BR', dateOptions);
+const heroDateEl = document.getElementById("hero-date");
+if (heroDateEl) heroDateEl.textContent = todayDate.charAt(0).toUpperCase() + todayDate.slice(1);
+
+const hour = new Date().getHours();
+let greeting = "Boa noite";
+if (hour >= 5 && hour < 12) greeting = "Bom dia";
+else if (hour >= 12 && hour < 18) greeting = "Boa tarde";
+
+const heroGreetingEl = document.getElementById("hero-greeting");
+if (heroGreetingEl) heroGreetingEl.textContent = `${greeting}, Admin`;
+
+
 // Inicializa o contêiner de máquinas com uma vazia por padrão
 const mContainer = document.getElementById("machines-container");
 if (mContainer && mContainer.children.length === 0) {
     addMachineField();
+}
+
+// --- CRDITOS --------------------------------------------------
+function openCreditsModal() {
+    document.getElementById("credits-overlay").classList.add("active");
+}
+function closeCreditsModal() {
+    document.getElementById("credits-overlay").classList.remove("active");
 }

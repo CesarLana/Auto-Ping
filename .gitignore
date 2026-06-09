@@ -6,3 +6,10 @@ __pycache__/
 usuarios.xlsx
 usuarios.xlsx.bak
 seed.py
+usuarios.db
+*.bak
+old_style*.css
+transitions.txt
+test_*.py
+test_*.xlsx
+scratch/

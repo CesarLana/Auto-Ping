@@ -1,0 +1,71 @@
+/* ==========================================================================
+   Card Component (Apple HIG Style)
+   ========================================================================== */
+.ds-card {
+  background-color: var(--bg-surface);
+  border: none;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  
+  transition: box-shadow var(--transition-normal), transform var(--transition-normal);
+}
+
+/* Glassmorphism / Vibrancy variant (Apple HIG signature) */
+.ds-card--glass {
+  background-color: var(--bg-material-regular);
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-lg);
+}
+
+.ds-card--hoverable:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.ds-card--glow:hover {
+  box-shadow: var(--shadow-glow);
+}
+
+/* Inner structure */
+.ds-card__header {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ds-card__title {
+  font-size: 1.0625rem; /* ~17px standard iOS title */
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.4px;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.ds-card__description {
+  font-size: 0.9375rem; /* ~15px */
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+}
+
+.ds-card__body {
+  padding: var(--space-5);
+  flex: 1;
+}
+
+.ds-card__footer {
+  padding: var(--space-4) var(--space-5);
+  background-color: transparent;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
