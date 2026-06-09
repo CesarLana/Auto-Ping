@@ -52,11 +52,11 @@ def init_db():
                     FOREIGN KEY(Usuario_ID) REFERENCES colaboradores(ID) ON DELETE CASCADE
                 )
             ''')
-            conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_colab_racf ON colaboradores(RACF)')
-            conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_colab_func ON colaboradores(Funcional)')
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_colab_email ON colaboradores(Email) WHERE Email != ''")
-            conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_maq_host ON maquinas(Hostname)')
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_maq_serial ON maquinas(Serial) WHERE Serial != ''")
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_colab_racf ON colaboradores(RACF)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_colab_func ON colaboradores(Funcional)')
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_colab_email ON colaboradores(Email) WHERE Email != ''")
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_maq_host ON maquinas(Hostname)')
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_maq_serial ON maquinas(Serial) WHERE Serial != ''")
             conn.execute('CREATE INDEX IF NOT EXISTS idx_maq_usu ON maquinas(Usuario_ID)')
 
 def migrate_excel_to_sqlite():
