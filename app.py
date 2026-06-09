@@ -102,7 +102,7 @@ def migrate_excel_to_sqlite():
             for _, row in df_machines.iterrows():
                 if pd.isna(row.get("Hostname")): continue
                 cursor.execute('''
-                    INSERT INTO maquinas (ID, Usuario_ID, Tipo, Hostname, IP, Serial)
+                    INSERT OR IGNORE INTO maquinas (ID, Usuario_ID, Tipo, Hostname, IP, Serial)
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', (
                     int(row["ID"]) if pd.notna(row.get("ID")) else None,
