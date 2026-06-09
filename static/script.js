@@ -834,6 +834,14 @@ async function selectUserForLookup(userId, userDisplayValue) {
                             </div>
                         </div>
                         <div style="display: flex; gap: 8px;">
+                            <button class="pill-btn primary" onclick="window.location.href='/api/download-rdp/${escapeHTML(m.IP || m.Hostname)}'" title="Acessar Área de Trabalho Remota">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                                </svg>
+                                Acessar
+                            </button>
                             <button class="pill-btn danger" onclick="confirmShutdownSpecific('${escapeHTML(m.Hostname)}', 'live-ip-${user.ID}-${index}', '${escapeHTML(m.IP)}', '${escapeHTML(user.Nome)} (${escapeHTML(m.Tipo)})')">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>

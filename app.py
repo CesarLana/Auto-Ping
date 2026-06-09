@@ -559,8 +559,18 @@ def jump_action():
         logger.exception("Erro interno:")
         return jsonify({"erro": "Erro interno do servidor."}), 500
 
+@app.route('/api/download-rdp/<ip>')
+def download_rdp(ip):
+    if not re.match(r'^[a-zA-Z0-9\-\.]+$', ip):
+        return "IP ou Hostname inválido", 400
+    
+    rdp_content = f"full address:s:{ip}\nprompt for credentials:i:1\n"
+    response = make_response(rdp_content)
+    response.headers["Content-Disposition"] = f"attachment; filename=Acesso_Remoto_{ip}.rdp"
+    response.headers["Content-type"] = "application/x-rdp"
+    return response
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     init_db()
     migrate_excel_to_sqlite()
     app.run(debug=False, port=5000, threaded=True, host="0.0.0.0")
