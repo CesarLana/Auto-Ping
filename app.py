@@ -88,7 +88,7 @@ def migrate_excel_to_sqlite():
             for _, row in df_users.iterrows():
                 if pd.isna(row.get("Nome")): continue
                 cursor.execute('''
-                    INSERT INTO colaboradores (ID, RACF, Funcional, Nome, Email, Status)
+                    INSERT OR IGNORE INTO colaboradores (ID, RACF, Funcional, Nome, Email, Status)
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', (
                     int(row["ID"]) if pd.notna(row.get("ID")) else None,
