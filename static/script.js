@@ -834,7 +834,7 @@ async function selectUserForLookup(userId, userDisplayValue) {
                             </div>
                         </div>
                         <div style="display: flex; gap: 8px;">
-                            <button class="pill-btn primary" onclick="window.location.href='/api/download-rdp/${escapeHTML(m.IP || m.Hostname)}'" title="Acessar Área de Trabalho Remota">
+                            <button class="pill-btn primary" onclick="downloadCustomRdp('${escapeHTML(m.IP || m.Hostname)}')" title="Acessar Área de Trabalho Remota">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
                                     <line x1="8" y1="21" x2="16" y2="21"></line>
@@ -1134,6 +1134,23 @@ function loadJumpConfig() {
         document.getElementById("jump-cmd-shutdown").value = config.cmdShutdown || "";
         document.getElementById("jump-cmd-restart").value = config.cmdRestart || "";
     }
+}
+
+function downloadCustomRdp(targetIp) {
+    const saved = localStorage.getItem("autoPing_jumpConfig");
+    let baseRdp = "";
+    if (saved) {
+        const config = JSON.parse(saved);
+        if (config.rdpPath) {
+            baseRdp = encodeURIComponent(config.rdpPath);
+        }
+    }
+    
+    let url = `/api/download-rdp/${targetIp}`;
+    if (baseRdp) {
+        url += `?base_rdp=${baseRdp}`;
+    }
+    window.location.href = url;
 }
 
 async function executeJumpAction(action, targetIp) {

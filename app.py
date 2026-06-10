@@ -554,6 +554,201 @@ def jump_action():
 
         threading.Thread(target=cleanup_thread, daemon=True).start()
 
+                    for maq in novas_maquinas:
+                        cursor.execute('''
+                            INSERT INTO maquinas (Usuario_ID, Tipo, Hostname, IP, Serial)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (user_id, maq[0], maq[1], maq[2], maq[3]))
+
+                campos_update = []
+                vals_update = []
+                for campo in ["RACF", "Funcional", "Nome", "Email", "Status"]:
+                    if campo in dados:
+                        valor = str(dados[campo]).strip()
+                        if campo == "RACF" and valor: valor = valor.upper()
+                        campos_update.append(f"{campo}=?")
+                        vals_update.append(valor)
+                
+                if campos_update:
+                    vals_update.append(user_id)
+                    query = f"UPDATE colaboradores SET {', '.join(campos_update)} WHERE ID=?"
+                    cursor.execute(query, tuple(vals_update))
+
+            u = conn.execute("SELECT * FROM colaboradores WHERE ID=?", (user_id,)).fetchone()
+            usuario_atualizado = dict(u)
+            maquinas = conn.execute("SELECT * FROM maquinas WHERE Usuario_ID=?", (user_id,)).fetchall()
+            usuario_atualizado["maquinas"] = [dict(m) for m in maquinas]
+
+        return jsonify({"mensagem": "Usuário atualizado com sucesso!", "usuario": usuario_atualizado})
+    except Exception as e:
+        logger.exception("Erro interno:")
+        return jsonify({"erro": "Erro interno do servidor."}), 500
+
+
+@app.route("/usuarios/<int:user_id>", methods=["DELETE"])
+def excluir(user_id):
+    with closing(get_db()) as conn:
+        cursor = conn.cursor()
+        u = cursor.execute("SELECT ID FROM colaboradores WHERE ID=?", (user_id,)).fetchone()
+        if not u: return jsonify({"erro": "Usuário não encontrado."}), 404
+        with conn:
+            cursor.execute("DELETE FROM colaboradores WHERE ID=?", (user_id,))
+    return jsonify({"mensagem": "Usuário excluído com sucesso!"})
+
+
+@app.route("/ping/<hostname>", methods=["GET"])
+def ping_host(hostname):
+    if not re.match(r'^[a-zA-Z0-9\-\._]+$', hostname):
+        return jsonify({"erro": "Hostname inválido."}), 400
+
+    try:
+        result = subprocess.run(
+            ["ping", "-4", "-n", "1", "-w", "3000", hostname],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        output = result.stdout
+        ip = None
+        bracket_match = re.search(r'\[(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]', output)
+        if bracket_match: ip = bracket_match.group(1)
+        elif re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname): ip = hostname
+        else:
+            for line in output.splitlines():
+                line_lower = line.lower()
+                if ("disparando" in line_lower or "pinging" in line_lower or "ping" in line_lower) and not ("resposta" in line_lower or "reply" in line_lower):
+                    ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
+                    if ipv4_match:
+                        ip = ipv4_match.group(1)
+                        break
+        if not ip:
+            for line in output.splitlines():
+                line_lower = line.lower()
+                if "estatí" in line_lower or "estatisticas" in line_lower or "statistics" in line_lower or "estatist" in line_lower:
+                    ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
+                    if ipv4_match:
+                        ip = ipv4_match.group(1)
+                        break
+        if not ip:
+            for line in output.splitlines():
+                line_lower = line.lower()
+                if any(x in line_lower for x in ["inacess", "unreach", "resposta de", "reply from", "perda", "lost"]): continue
+                ipv4_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
+                if ipv4_match:
+                    ip = ipv4_match.group(1)
+                    break
+
+        if ip:
+            online = result.returncode == 0 and "ttl=" in output.lower()
+            return jsonify({
+                "hostname": hostname,
+                "ip": ip,
+                "online": online,
+                "mensagem": f"{'Online' if online else 'Offline'} — IP: {ip}"
+            })
+        else:
+            return jsonify({"erro": f"Não foi possível resolver o hostname '{hostname}'."}), 404
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"erro": "Timeout ao tentar pingar a máquina."}), 408
+    except Exception as e:
+        logger.exception("Erro interno:")
+        return jsonify({"erro": "Erro interno do servidor."}), 500
+
+
+@app.route('/api/jump-action', methods=['POST'])
+def jump_action():
+    try:
+        import tempfile
+        import time
+        import threading
+        data = request.json
+        rdp_path = data.get('rdp_path')
+        jump_ip = data.get('jump_ip')
+        jump_user = data.get('jump_user')
+        jump_pass = data.get('jump_pass')
+        command = data.get('command')
+        target_ip = data.get('target_ip')
+
+        if not command or not target_ip:
+            return jsonify({"erro": "Comando ou IP alvo ausente."}), 400
+        if not rdp_path and not jump_ip:
+            return jsonify({"erro": "Forneça o caminho do .rdp ou o IP do Jump Server."}), 400
+
+        if jump_ip and not re.match(r'^[a-zA-Z0-9\-\.]+$', jump_ip):
+            return jsonify({"erro": "IP do Jump Server inválido."}), 400
+        if jump_user and not re.match(r'^[a-zA-Z0-9_\.\-\@]+$', jump_user):
+            return jsonify({"erro": "Usuário do Jump Server inválido."}), 400
+        if target_ip and not re.match(r'^[a-zA-Z0-9\-\.]+$', target_ip):
+            return jsonify({"erro": "IP alvo inválido."}), 400
+
+        if rdp_path:
+            if not os.path.exists(rdp_path) or not rdp_path.endswith('.rdp'):
+                return jsonify({"erro": "Arquivo RDP inválido ou inexistente."}), 400
+
+        temp_dir = tempfile.gettempdir()
+        safe_target = re.sub(r'[^a-zA-Z0-9]', '_', target_ip)
+        temp_rdp = os.path.join(temp_dir, f"autoping_jump_{safe_target}_{int(time.time())}.rdp")
+
+        rdp_content = []
+        if rdp_path and os.path.exists(rdp_path):
+            try:
+                with open(rdp_path, 'r', encoding='utf-8') as f:
+                    rdp_content = f.readlines()
+            except UnicodeDecodeError:
+                with open(rdp_path, 'r', encoding='utf-16') as f:
+                    rdp_content = f.readlines()
+            rdp_content = [line for line in rdp_content if not line.lower().startswith('alternate shell:')]
+            if not jump_ip:
+                for line in rdp_content:
+                    if line.lower().startswith('full address:s:'):
+                        jump_ip = line.split(':s:')[1].strip()
+        else:
+            rdp_content = [
+                f"full address:s:{jump_ip}\n",
+                f"username:s:{jump_user}\n",
+                "prompt for credentials:i:0\n"
+            ]
+
+        rdp_content.append('alternate shell:s:cmd.exe\n')
+
+        with open(temp_rdp, 'w', encoding='utf-16') as f:
+            f.writelines(rdp_content)
+
+        target = None
+        if jump_ip and jump_user and jump_pass:
+            import win32cred
+            target = f"TERMSRV/{jump_ip}"
+            cred = {
+                'TargetName': target, 'UserName': jump_user,
+                'CredentialBlob': jump_pass,
+                'Type': win32cred.CRED_TYPE_DOMAIN_PASSWORD, 'Persist': win32cred.CRED_PERSIST_SESSION
+            }
+            win32cred.CredWrite(cred, 0)
+
+        DETACHED_PROCESS = 0x00000008
+        subprocess.Popen(["mstsc.exe", temp_rdp], creationflags=DETACHED_PROCESS)
+
+        def cleanup_thread():
+            try:
+                time.sleep(3)
+                if target:
+                    import win32cred
+                    try: win32cred.CredDelete(target, win32cred.CRED_TYPE_DOMAIN_PASSWORD, 0)
+                    except Exception: pass
+            finally:
+                for _ in range(5):
+                    time.sleep(2)
+                    try:
+                        if os.path.exists(temp_rdp):
+                            os.remove(temp_rdp)
+                            break
+                    except Exception:
+                        pass
+
+        threading.Thread(target=cleanup_thread, daemon=True).start()
+
         return jsonify({"mensagem": "Iniciando Área de Trabalho Remota e Injetando Credenciais!"}), 200
     except Exception as e:
         logger.exception("Erro interno:")
@@ -564,9 +759,31 @@ def download_rdp(ip):
     if not re.match(r'^[a-zA-Z0-9\-\.]+$', ip):
         return "IP ou Hostname inválido", 400
     
-    rdp_content = f"full address:s:{ip}\nprompt for credentials:i:1\n"
+    base_rdp = request.args.get('base_rdp', '')
+    rdp_content_lines = []
+    
+    if base_rdp and os.path.exists(base_rdp) and base_rdp.endswith('.rdp'):
+        try:
+            with open(base_rdp, 'r', encoding='utf-8') as f:
+                rdp_content_lines = f.readlines()
+        except UnicodeDecodeError:
+            with open(base_rdp, 'r', encoding='utf-16') as f:
+                rdp_content_lines = f.readlines()
+                
+        # Remover IP/Host antigo do arquivo base
+        rdp_content_lines = [line for line in rdp_content_lines if not line.lower().startswith('full address:s:')]
+    
+    # Injetar o novo IP
+    rdp_content_lines.append(f"full address:s:{ip}\n")
+    
+    # Garantir prompt de credenciais se não existir
+    if not any(line.lower().startswith('prompt for credentials:') for line in rdp_content_lines):
+        rdp_content_lines.append("prompt for credentials:i:1\n")
+        
+    rdp_content = "".join(rdp_content_lines)
+    
     response = make_response(rdp_content)
-    response.headers["Content-Disposition"] = f"attachment; filename=Acesso_Remoto_{ip}.rdp"
+    response.headers["Content-Disposition"] = f"attachment; filename=Acesso_{ip}.rdp"
     response.headers["Content-type"] = "application/x-rdp"
     return response
 
