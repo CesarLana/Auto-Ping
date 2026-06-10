@@ -1136,21 +1136,30 @@ function loadJumpConfig() {
     }
 }
 
-function downloadCustomRdp(targetIp) {
+async function downloadCustomRdp(targetIp) {
     const saved = localStorage.getItem("autoPing_jumpConfig");
     let baseRdp = "";
     if (saved) {
         const config = JSON.parse(saved);
         if (config.rdpPath) {
-            baseRdp = encodeURIComponent(config.rdpPath);
+            baseRdp = config.rdpPath;
         }
     }
     
-    let url = `/api/download-rdp/${targetIp}`;
-    if (baseRdp) {
-        url += `?base_rdp=${baseRdp}`;
+    try {
+        showToast("Abrindo Área de Trabalho Remota...", "success");
+        const payload = { ip: targetIp, base_rdp: baseRdp };
+        const data = await safeFetch("/api/open-rdp", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        if (data && data.mensagem) {
+            console.log(data.mensagem);
+        }
+    } catch (error) {
+        showToast("Erro ao abrir a Área de Trabalho Remota.", "error");
     }
-    window.location.href = url;
 }
 
 async function executeJumpAction(action, targetIp) {

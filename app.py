@@ -754,6 +754,57 @@ def jump_action():
         logger.exception("Erro interno:")
         return jsonify({"erro": "Erro interno do servidor."}), 500
 
+@app.route('/api/open-rdp', methods=['POST'])
+def open_rdp():
+    import tempfile
+    import time
+    data = request.json
+    ip = data.get('ip')
+    base_rdp = data.get('base_rdp')
+
+    if not ip or not re.match(r'^[a-zA-Z0-9\-\.]+$', ip):
+        return jsonify({"erro": "IP ou Hostname inválido."}), 400
+
+    rdp_content_lines = []
+    if base_rdp and os.path.exists(base_rdp) and base_rdp.endswith('.rdp'):
+        try:
+            with open(base_rdp, 'r', encoding='utf-8') as f:
+                rdp_content_lines = f.readlines()
+        except UnicodeDecodeError:
+            with open(base_rdp, 'r', encoding='utf-16') as f:
+                rdp_content_lines = f.readlines()
+
+        rdp_content_lines = [line for line in rdp_content_lines if not line.lower().startswith('full address:s:')]
+
+    rdp_content_lines.append(f"full address:s:{ip}\n")
+    if not any(line.lower().startswith('prompt for credentials:') for line in rdp_content_lines):
+        rdp_content_lines.append("prompt for credentials:i:1\n")
+
+    temp_dir = tempfile.gettempdir()
+    safe_target = re.sub(r'[^a-zA-Z0-9]', '_', ip)
+    temp_rdp = os.path.join(temp_dir, f"autoping_direct_{safe_target}_{int(time.time())}.rdp")
+
+    with open(temp_rdp, 'w', encoding='utf-16') as f:
+        f.writelines(rdp_content_lines)
+
+    DETACHED_PROCESS = 0x00000008
+    subprocess.Popen(["mstsc.exe", temp_rdp], creationflags=DETACHED_PROCESS)
+
+    def cleanup_thread():
+        time.sleep(5)
+        for _ in range(5):
+            time.sleep(2)
+            try:
+                if os.path.exists(temp_rdp):
+                    os.remove(temp_rdp)
+                    break
+            except Exception:
+                pass
+
+    threading.Thread(target=cleanup_thread, daemon=True).start()
+
+    return jsonify({"mensagem": "Conexão de Área de Trabalho Remota iniciada com sucesso!"}), 200
+
 @app.route('/api/download-rdp/<ip>')
 def download_rdp(ip):
     if not re.match(r'^[a-zA-Z0-9\-\.]+$', ip):
