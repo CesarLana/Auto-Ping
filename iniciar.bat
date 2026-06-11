@@ -1,4 +1,5 @@
 @echo off
+pushd "%~dp0"
 title Auto-Ping - Servidor Local
 echo ==============================================
 echo Iniciando o sistema de Gestao de Colaboradores...
