@@ -65,7 +65,7 @@ function doSwitchView(viewName) {
     const targetView = document.getElementById(`view-${viewName}`);
     if(targetView) targetView.classList.add("active");
 
-    const titles = { dashboard: "Dashboard", cadastrar: "Cadastrar", listar: "Diretório" };
+    const titles = { dashboard: "Dashboard", cadastrar: "Cadastrar", listar: "Diretório", intune: "Importar Intune" };
     const pageTitle = document.getElementById("page-title");
     if(pageTitle) pageTitle.textContent = titles[viewName];
 
@@ -94,6 +94,21 @@ function showToast(message, type = "success") {
 }
 
 // ─── TEMA (DARK / LIGHT) ────────────────────────────────────────
+function updateThemeButtons(isLight) {
+    const btnDesktop = document.getElementById("btn-toggle-theme-desktop");
+    if (btnDesktop) {
+        btnDesktop.innerHTML = isLight
+            ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg> Modo Escuro'
+            : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg> Modo Claro';
+    }
+    const btnMobile = document.getElementById("mobile-theme-toggle");
+    if (btnMobile) {
+        btnMobile.innerHTML = isLight
+            ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>'
+            : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+    }
+}
+
 function toggleTheme() {
     const current = document.documentElement.getAttribute("data-theme");
     const next = current === "light" ? null : "light";
@@ -106,27 +121,18 @@ function toggleTheme() {
         localStorage.setItem("autoPing_theme", "dark");
     }
     
-    // Atualizar texto do botão
-    const btn = document.querySelector(".theme-toggle-btn");
-    if (btn) {
-        const isLight = next === "light";
-        btn.innerHTML = isLight
-            ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg> Modo Escuro'
-            : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg> Modo Claro';
-    }
+    updateThemeButtons(next === "light");
 }
 
 function initTheme() {
     const saved = localStorage.getItem("autoPing_theme");
-    if (saved === "light") {
+    const isLight = saved === "light";
+    if (isLight) {
         document.documentElement.setAttribute("data-theme", "light");
-        const btn = document.querySelector(".theme-toggle-btn");
-        if (btn) {
-            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg> Modo Escuro';
-        }
     } else {
         document.documentElement.removeAttribute("data-theme");
     }
+    updateThemeButtons(isLight);
 }
 
 // ─── UTILS ─────────────────────────────────────────────────────
@@ -549,8 +555,8 @@ async function loadUsers(searchValue) {
         };
 
         updateList();
-    } catch {
-        showToast("Erro ao carregar a lista de usuários.", "error");
+    } catch (e) {
+        showToast(e.message || "Erro ao carregar a lista de usuários.", "error");
     }
 }
 
@@ -669,8 +675,8 @@ async function editUser(userId) {
             </svg>
             Salvar Alterações`;
         document.getElementById("btn-cancel").style.display = "inline-flex";
-    } catch {
-        showToast("Erro ao carregar os dados do usuário.", "error");
+    } catch (e) {
+        showToast(e.message || "Erro ao carregar os dados do usuário.", "error");
     }
 }
 
@@ -834,7 +840,7 @@ async function selectUserForLookup(userId, userDisplayValue) {
                             </div>
                         </div>
                         <div style="display: flex; gap: 8px;">
-                            <button class="pill-btn primary" onclick="downloadCustomRdp('${escapeHTML(m.IP || m.Hostname)}')" title="Acessar Área de Trabalho Remota">
+                            <button class="pill-btn primary" data-target="${escapeHTML(m.IP || m.Hostname)}" onclick="downloadCustomRdp(this.dataset.target)" title="Acessar Área de Trabalho Remota">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
                                     <line x1="8" y1="21" x2="16" y2="21"></line>
@@ -842,14 +848,14 @@ async function selectUserForLookup(userId, userDisplayValue) {
                                 </svg>
                                 Acessar
                             </button>
-                            <button class="pill-btn danger" onclick="confirmShutdownSpecific('${escapeHTML(m.Hostname)}', 'live-ip-${user.ID}-${index}', '${escapeHTML(m.IP)}', '${escapeHTML(user.Nome)} (${escapeHTML(m.Tipo)})')">
+                            <button class="pill-btn danger" data-hostname="${escapeHTML(m.Hostname)}" data-ip-el="live-ip-${user.ID}-${index}" data-ip="${escapeHTML(m.IP)}" data-display-name="${escapeHTML(user.Nome)} (${escapeHTML(m.Tipo)})" onclick="confirmShutdownSpecific(this.dataset.hostname, this.dataset.ipEl, this.dataset.ip, this.dataset.displayName)">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
                                     <line x1="12" y1="2" x2="12" y2="12"></line>
                                 </svg>
                                 Desligar
                             </button>
-                            <button class="pill-btn" onclick="confirmRestartSpecific('${escapeHTML(m.Hostname)}', 'live-ip-${user.ID}-${index}', '${escapeHTML(m.IP)}', '${escapeHTML(user.Nome)} (${escapeHTML(m.Tipo)})')">
+                            <button class="pill-btn" data-hostname="${escapeHTML(m.Hostname)}" data-ip-el="live-ip-${user.ID}-${index}" data-ip="${escapeHTML(m.IP)}" data-display-name="${escapeHTML(user.Nome)} (${escapeHTML(m.Tipo)})" onclick="confirmRestartSpecific(this.dataset.hostname, this.dataset.ipEl, this.dataset.ip, this.dataset.displayName)">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
                                 </svg>
@@ -926,7 +932,7 @@ async function selectUserForLookup(userId, userDisplayValue) {
     } catch (error) {
         console.error("Erro ao carregar lookup", error);
         if (detailDiv) {
-            detailDiv.innerHTML = `<div class="apple-card" style="text-align: center; padding: 24px; margin-top: 16px; color: var(--color-danger);">Erro ao carregar colaborador.</div>`;
+            detailDiv.innerHTML = `<div class="apple-card" style="text-align: center; padding: 24px; margin-top: 16px; color: var(--color-danger);">Erro ao carregar colaborador: ${escapeHTML(error.message)}</div>`;
         }
     }
 }
@@ -963,20 +969,16 @@ async function autoPingSpecific(userId, index, hostname) {
         });
         
 
-        if (true) {
-            if (ipEl) {
-                ipEl.innerHTML = `${escapeHTML(data.ip)} <button type="button" class="btn-copy" onclick="copyToClipboard('${escapeHTML(data.ip)}')" title="Copiar IP"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`;
-            }
-            if (statusEl) {
-                statusEl.innerHTML = data.online
-                    ? '<span class="ping-dot dot-online"></span> <span style="color:var(--color-success)">Online</span>'
-                    : '<span class="ping-dot dot-offline"></span> <span style="color:var(--color-danger)">Offline</span>';
-            }
-        } else {
-            if (ipEl) ipEl.textContent = "Não resolvido";
-            if (statusEl) statusEl.innerHTML = '<span class="ping-dot dot-offline"></span> <span style="color:var(--color-danger)">Não acessível</span>';
+        if (ipEl) {
+            ipEl.innerHTML = `${escapeHTML(data.ip)} <button type="button" class="btn-copy" data-ip="${escapeHTML(data.ip)}" onclick="copyToClipboard(this.dataset.ip)" title="Copiar IP"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`;
         }
-    } catch {
+        if (statusEl) {
+            statusEl.innerHTML = data.online
+                ? '<span class="ping-dot dot-online"></span> <span style="color:var(--color-success)">Online</span>'
+                : '<span class="ping-dot dot-offline"></span> <span style="color:var(--color-danger)">Offline</span>';
+        }
+    } catch (e) {
+        if (e.name === 'AbortError') return;
         if (ipEl) ipEl.textContent = "Erro";
         if (statusEl) statusEl.innerHTML = '<span style="color:var(--color-danger)">Erro na conexão</span>';
     }
@@ -1091,13 +1093,22 @@ function confirmRestartSpecific(hostname, liveIpElementId, registeredIp, display
 }
 
 // ─── CONFIGURAÇÕES DO JUMP SERVER ──────────────────────────────
+let intunePollInterval = null;
+
 function openJumpConfigModal() {
     loadJumpConfig();
+    checkIntuneStatus();
     document.getElementById("jump-config-overlay").classList.add("active");
 }
 
 function closeJumpConfigModal() {
     document.getElementById("jump-config-overlay").classList.remove("active");
+    if (intunePollInterval) {
+        clearInterval(intunePollInterval);
+        intunePollInterval = null;
+    }
+    const authCodeBox = document.getElementById("intune-auth-code-box");
+    if (authCodeBox) authCodeBox.style.display = "none";
 }
 
 function saveJumpConfig() {
@@ -1238,3 +1249,221 @@ function openCreditsModal() {
 function closeCreditsModal() {
     document.getElementById("credits-overlay").classList.remove("active");
 }
+
+// --- IMPORTAÇÃO DO INTUNE ---------------------------------------
+document.getElementById("intune-upload-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById("intune-csv-file");
+    const clearDbCheckbox = document.getElementById("intune-clear-db");
+    if (!fileInput || !fileInput.files.length) return;
+
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("limpar_base", clearDbCheckbox && clearDbCheckbox.checked ? "true" : "false");
+
+    const btn = document.getElementById("btn-import-intune");
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Processando arquivo...";
+    }
+
+    const resultDiv = document.getElementById("intune-import-result");
+    if (resultDiv) {
+        resultDiv.style.display = "none";
+        resultDiv.innerHTML = "";
+    }
+
+    try {
+        const res = await fetch("/api/intune/import", {
+            method: "POST",
+            body: formData
+        });
+        
+        let data = {};
+        try {
+            data = await res.json();
+        } catch (e) {
+            throw new Error("Resposta inválida do servidor.");
+        }
+
+        if (!res.ok) throw new Error(data.erro || "Erro ao processar importação.");
+
+        showToast(data.mensagem || "Sincronização concluída!", "success");
+        
+        if (resultDiv) {
+            resultDiv.style.display = "block";
+            resultDiv.className = "ping-result success";
+            resultDiv.innerHTML = `
+                <strong>Sincronização Concluída!</strong><br>
+                - Colaboradores novos importados: ${data.colaboradores_importados}<br>
+                - Máquinas novas importadas: ${data.maquinas_importadas}<br>
+                ${data.erros && data.erros.length ? `<br><small style="color:var(--color-danger); display:block; margin-top:8px;">Avisos:<br>${data.erros.map(escapeHTML).join('<br>')}</small>` : ''}
+            `;
+        }
+        if (fileInput) fileInput.value = "";
+        loadDashboard();
+    } catch (err) {
+        showToast(err.message, "error");
+        if (resultDiv) {
+            resultDiv.style.display = "block";
+            resultDiv.className = "ping-result error";
+            resultDiv.innerHTML = `<strong>Erro na Importação:</strong> ${escapeHTML(err.message)}`;
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = "Processar e Importar Dispositivos";
+        }
+    }
+});
+
+// --- INTEGRAÇÃO COM INTUNE (APIS & LOOKUP) -----------------------
+
+async function checkIntuneStatus() {
+    const badge = document.getElementById("intune-status-badge");
+    const btn = document.getElementById("btn-connect-intune");
+    if (!badge || !btn) return;
+
+    try {
+        const data = await safeFetch("/api/intune/status");
+        if (data.connected) {
+            badge.textContent = "Conectado";
+            badge.className = "status-badge online";
+            badge.style.background = "rgba(5, 150, 105, 0.15)";
+            badge.style.color = "var(--color-success)";
+            btn.textContent = "Desconectar";
+            btn.className = "pill-btn danger";
+            btn.setAttribute("onclick", "disconnectIntune()");
+        } else {
+            badge.textContent = "Desconectado";
+            badge.className = "status-badge offline";
+            badge.style.background = "rgba(220, 38, 38, 0.15)";
+            badge.style.color = "var(--color-danger)";
+            btn.textContent = "Conectar Conta";
+            btn.className = "pill-btn";
+            btn.setAttribute("onclick", "startIntuneAuth()");
+        }
+    } catch (e) {
+        console.error("Erro ao verificar status do Intune", e);
+    }
+}
+
+async function disconnectIntune() {
+    if (!confirm("Tem certeza que deseja desconectar sua conta do Intune?")) return;
+    try {
+        const data = await safeFetch("/api/intune/disconnect", { method: "POST" });
+        showToast(data.mensagem, "success");
+        checkIntuneStatus();
+    } catch (e) {
+        showToast(e.message, "error");
+    }
+}
+
+async function startIntuneAuth() {
+    const authCodeBox = document.getElementById("intune-auth-code-box");
+    const userCodeEl = document.getElementById("intune-user-code");
+    const btn = document.getElementById("btn-connect-intune");
+    if (!authCodeBox || !userCodeEl || !btn) return;
+
+    btn.disabled = true;
+    btn.textContent = "Obtendo código...";
+
+    try {
+        const data = await safeFetch("/api/intune/devicecode", { method: "POST" });
+        userCodeEl.textContent = data.user_code;
+        authCodeBox.style.display = "block";
+        
+        if (intunePollInterval) clearInterval(intunePollInterval);
+        
+        const intervalMs = (data.interval || 5) * 1000;
+        intunePollInterval = setInterval(async () => {
+            try {
+                const checkRes = await fetch("/api/intune/token-check", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ device_code: data.device_code })
+                });
+                const checkData = await checkRes.json();
+                
+                if (checkData.status === "completed") {
+                    clearInterval(intunePollInterval);
+                    intunePollInterval = null;
+                    showToast("Conta do Intune conectada com sucesso!", "success");
+                    authCodeBox.style.display = "none";
+                    checkIntuneStatus();
+                } else if (checkData.status !== "pending") {
+                    clearInterval(intunePollInterval);
+                    intunePollInterval = null;
+                    showToast(checkData.erro || "Falha na autenticação.", "error");
+                    authCodeBox.style.display = "none";
+                    checkIntuneStatus();
+                }
+            } catch (err) {
+                console.error("Erro no polling de token do Intune", err);
+            }
+        }, intervalMs);
+        
+    } catch (e) {
+        showToast(e.message, "error");
+        authCodeBox.style.display = "none";
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Conectar Conta";
+    }
+}
+
+// Lógica do botão "Buscar no Intune" ao lado do E-mail
+document.getElementById("btn-fetch-intune")?.addEventListener("click", async () => {
+    const emailInput = document.getElementById("email");
+    if (!emailInput) return;
+    
+    const email = emailInput.value.trim();
+    if (!email) {
+        showToast("Digite o e-mail do colaborador primeiro.", "error");
+        return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showToast("Formato de e-mail inválido.", "error");
+        return;
+    }
+
+    const btn = document.getElementById("btn-fetch-intune");
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="loading-spinner" style="display:inline-block; width:12px; height:12px; border:2px solid var(--text-primary); border-radius:50%; border-top-color:transparent; animation:spin 1s linear infinite; margin-right:4px;"></span> Buscando...`;
+
+    try {
+        const url = `/api/intune/lookup-devices?email=${encodeURIComponent(email)}`;
+        const data = await safeFetch(url);
+        
+        if (!data.devices || data.devices.length === 0) {
+            showToast("Nenhuma máquina encontrada para este e-mail no Intune.", "error");
+            return;
+        }
+
+        // Limpar máquinas atuais no formulário
+        const container = document.getElementById("machines-container");
+        if (container) {
+            container.innerHTML = "";
+        }
+
+        // Preencher com as máquinas encontradas
+        data.devices.forEach((dev) => {
+            addMachineField({
+                Tipo: dev.Tipo || "Notebook",
+                Hostname: dev.Hostname,
+                Serial: dev.Serial || "",
+                IP: dev.IP || ""
+            });
+        });
+        
+        const sourceText = data.source === "api" ? "ao vivo da nuvem" : "do cache local";
+        showToast(`Encontradas ${data.devices.length} máquina(s) ${sourceText}!`, "success");
+    } catch (e) {
+        showToast(e.message, "error");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    }
+});
