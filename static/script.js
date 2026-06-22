@@ -1147,7 +1147,89 @@ function loadJumpConfig() {
     }
 }
 
-async function downloadCustomRdp(targetIp) {
+// --- IPs Recentes (localStorage) ---
+function getRecentIps() {
+    try {
+        return JSON.parse(localStorage.getItem("autoPing_recentIps") || "[]");
+    } catch { return []; }
+}
+
+function saveRecentIp(ip) {
+    if (!ip) return;
+    let recents = getRecentIps().filter(r => r !== ip);
+    recents.unshift(ip); // mais recente primeiro
+    if (recents.length > 8) recents = recents.slice(0, 8);
+    localStorage.setItem("autoPing_recentIps", JSON.stringify(recents));
+}
+
+function renderSavedIps(currentIp) {
+    const container = document.getElementById("rdp-saved-ips");
+    const list = document.getElementById("rdp-saved-ips-list");
+    if (!container || !list) return;
+    
+    const recents = getRecentIps();
+    if (recents.length === 0) {
+        container.style.display = "none";
+        return;
+    }
+    
+    container.style.display = "block";
+    list.innerHTML = recents.map(ip => {
+        const isActive = ip === currentIp;
+        const bg = isActive ? 'var(--color-primary-500)' : 'rgba(255,255,255,0.08)';
+        const bgHover = isActive ? 'var(--color-primary-600)' : 'rgba(255,255,255,0.14)';
+        const txtColor = isActive ? '#fff' : 'var(--text-primary)';
+        const shadow = isActive ? '0 2px 8px rgba(59,130,246,0.3)' : 'inset 0 0 0 1px rgba(255,255,255,0.1)';
+        return '<button type="button" onclick="selectSavedIp(\'' + escapeHTML(ip) + '\')" style="padding:6px 14px;border-radius:20px;border:none;background:' + bg + ';color:' + txtColor + ';font-size:0.82rem;font-family:SF Mono,Fira Code,monospace;cursor:pointer;transition:all .15s ease;display:inline-flex;align-items:center;font-weight:500;box-shadow:' + shadow + ';" onmouseover="this.style.background=\'' + bgHover + '\'" onmouseout="this.style.background=\'' + bg + '\'">' + escapeHTML(ip) + '</button>';
+    }).join("");
+}
+
+function selectSavedIp(ip) {
+    const ipInput = document.getElementById("rdp-target-ip");
+    ipInput.value = ip;
+    ipInput.focus();
+    renderSavedIps(ip);
+}
+
+function openRdpModal(targetIp) {
+    const ipInput = document.getElementById("rdp-target-ip");
+    ipInput.value = targetIp || "";
+    
+    // Renderizar IPs recentes
+    renderSavedIps(targetIp);
+    
+    // Mostrar status da configuração do Jump
+    const statusDiv = document.getElementById("rdp-config-status");
+    const saved = localStorage.getItem("autoPing_jumpConfig");
+    if (saved) {
+        const config = JSON.parse(saved);
+        const via = config.rdpPath ? `Usando arquivo: ${config.rdpPath}` : (config.ip ? `Via Jump: ${config.ip}` : "Conexão direta");
+        statusDiv.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> ${escapeHTML(via)}`;
+    } else {
+        statusDiv.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg> Conexão direta (sem Jump configurado)`;
+    }
+    
+    document.getElementById("rdp-connect-overlay").classList.add("active");
+    setTimeout(() => ipInput.select(), 100);
+}
+
+function closeRdpModal() {
+    document.getElementById("rdp-connect-overlay").classList.remove("active");
+}
+
+async function confirmRdpConnect() {
+    const targetIp = document.getElementById("rdp-target-ip").value.trim();
+    if (!targetIp) {
+        showToast("Informe o IP de destino.", "error");
+        document.getElementById("rdp-target-ip").focus();
+        return;
+    }
+    
+    // Salvar nos recentes
+    saveRecentIp(targetIp);
+    
+    closeRdpModal();
+    
     const saved = localStorage.getItem("autoPing_jumpConfig");
     let baseRdp = "";
     if (saved) {
@@ -1171,6 +1253,11 @@ async function downloadCustomRdp(targetIp) {
     } catch (error) {
         showToast("Erro ao abrir a Área de Trabalho Remota.", "error");
     }
+}
+
+// Manter compatibilidade — botões antigos chamam esta função
+async function downloadCustomRdp(targetIp) {
+    openRdpModal(targetIp);
 }
 
 async function executeJumpAction(action, targetIp) {
@@ -1240,6 +1327,17 @@ if (heroGreetingEl) heroGreetingEl.textContent = `${greeting}, Admin`;
 const mContainer = document.getElementById("machines-container");
 if (mContainer && mContainer.children.length === 0) {
     addMachineField();
+}
+
+// Enter no campo de IP do modal RDP dispara a conexão
+const rdpIpInput = document.getElementById("rdp-target-ip");
+if (rdpIpInput) {
+    rdpIpInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            confirmRdpConnect();
+        }
+    });
 }
 
 // --- CRDITOS --------------------------------------------------

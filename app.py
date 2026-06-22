@@ -953,10 +953,11 @@ def get_valid_access_token():
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
                 "client_id": client_id,
-                "scope": "offline_access User.Read.All DeviceManagementManagedDevices.Read.All"
+                "scope": "offline_access User.Read DeviceManagementManagedDevices.Read.All"
             }).encode("utf-8")
             
             req = urllib.request.Request(url, data=post_data, method="POST")
+            req.add_header("Content-Type", "application/x-www-form-urlencoded")
             with urllib.request.urlopen(req) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
                 
@@ -979,23 +980,51 @@ def get_devicecode():
     import urllib.request
     import urllib.parse
     import json
-    try:
-        url = "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode"
-        client_id = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
-        scopes = "offline_access User.Read.All DeviceManagementManagedDevices.Read.All"
-        data = urllib.parse.urlencode({
-            "client_id": client_id,
-            "scope": scopes
-        }).encode("utf-8")
-        
-        req = urllib.request.Request(url, data=data, method="POST")
-        with urllib.request.urlopen(req) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            
-        return jsonify(res_data), 200
-    except Exception as e:
-        logger.exception("Erro ao obter device code do Azure AD:")
-        return jsonify({"erro": f"Erro ao obter código de autenticação: {str(e)}"}), 500
+
+    url = "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode"
+    client_id = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+
+    # Lista de escopos para tentar — do mais completo ao mínimo
+    scope_sets = [
+        "offline_access User.Read DeviceManagementManagedDevices.Read.All",
+        "offline_access User.Read DeviceManagementManagedDevices.Read",
+        "offline_access User.Read",
+    ]
+
+    last_error = None
+    for scopes in scope_sets:
+        try:
+            post_data = urllib.parse.urlencode({
+                "client_id": client_id,
+                "scope": scopes
+            }).encode("utf-8")
+
+            req = urllib.request.Request(url, data=post_data, method="POST")
+            req.add_header("Content-Type", "application/x-www-form-urlencoded")
+
+            with urllib.request.urlopen(req) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+
+            logger.info(f"Device code obtido com scopes: {scopes}")
+            return jsonify(res_data), 200
+
+        except urllib.error.HTTPError as he:
+            err_body = ""
+            try:
+                err_body = he.read().decode("utf-8")
+                err_json = json.loads(err_body)
+                last_error = err_json.get("error_description", err_body)
+            except Exception:
+                last_error = err_body or str(he)
+            logger.warning(f"Device code falhou com scopes [{scopes}]: {last_error}")
+            continue
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"Device code falhou com scopes [{scopes}]: {last_error}")
+            continue
+
+    logger.error(f"Device code falhou com todos os conjuntos de scopes. Último erro: {last_error}")
+    return jsonify({"erro": f"Não foi possível obter código de autenticação. Verifique se o Device Code Flow está habilitado no seu tenant Azure AD. Detalhe: {last_error}"}), 500
 
 @app.route("/api/intune/token-check", methods=["POST"])
 def check_token():
@@ -1017,6 +1046,7 @@ def check_token():
         }).encode("utf-8")
         
         req = urllib.request.Request(url, data=post_data, method="POST")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
         try:
             with urllib.request.urlopen(req) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
