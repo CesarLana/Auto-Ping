@@ -5,6 +5,8 @@ import tempfile
 import threading
 import atexit
 import time
+import sys
+import webbrowser
 
 logger = logging.getLogger(__name__)
 import subprocess
@@ -14,10 +16,21 @@ from flask import Flask, request, jsonify, send_from_directory, make_response
 from contextlib import closing
 from datetime import datetime
 
-app = Flask(__name__, static_folder="static")
+# Identifica se esta rodando como EXE do PyInstaller
+if getattr(sys, 'frozen', False):
+    # Pasta temporaria onde o PyInstaller extrai os arquivos (_MEIPASS)
+    BUNDLE_DIR = sys._MEIPASS
+    # Pasta original onde o .exe esta sendo executado (na rede)
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = BUNDLE_DIR
 
-# Diretório de modelos RDP seguro (Whitelist)
-TEMPLATE_DIR = os.path.abspath(r"C:\Users\Desktop\Documents\antigravity\Auto ping\rdp_templates")
+static_path = os.path.join(BUNDLE_DIR, "static")
+app = Flask(__name__, static_folder=static_path)
+
+# Diretório de modelos RDP seguro (agora relativo ao bundle)
+TEMPLATE_DIR = os.path.abspath(os.path.join(BUNDLE_DIR, "rdp_templates"))
 
 # Registro global de arquivos temporários RDP para limpeza em caso de reinicialização do Flask
 active_temp_files = set()
@@ -68,8 +81,8 @@ def add_header(response):
         response.cache_control.public = True
     return response
 
-DB_FILE = "usuarios.db"
-EXCEL_FILE = "usuarios.xlsx"
+DB_FILE = os.path.join(BASE_DIR, "usuarios.db")
+EXCEL_FILE = os.path.join(BASE_DIR, "usuarios.xlsx")
 
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -745,7 +758,14 @@ def import_intune():
             
         # Determine delimiter (';' or ',')
         first_line = decoded_content.splitlines()[0] if decoded_content.splitlines() else ""
-        delimiter = ';' if ';' in first_line else ','
+        try:
+            # Tenta usar o sniffer do Python para detectar o delimitador correto
+            delimiter = csv.Sniffer().sniff(first_line).delimiter
+        except:
+            # Fallback: conta qual separador aparece mais na primeira linha
+            delimiter = ';' if first_line.count(';') > first_line.count(',') else ','
+        
+        logger.info(f"Delimitador detectado: '{delimiter}'")
         
         stream = io.StringIO(decoded_content)
         reader = csv.DictReader(stream, delimiter=delimiter)
@@ -755,26 +775,57 @@ def import_intune():
             
         # Normalize headers and map them
         headers = reader.fieldnames
+        # Log headers for debugging
+        logger.info(f"CSV headers encontrados: {headers}")
+        
         col_map = {}
         for h in headers:
-            h_norm = h.strip().lower()
-            if h_norm in ["device name", "nome do dispositivo", "hostname", "devicename"]:
+            h_norm = h.strip().lower().replace('_', ' ').replace('-', ' ')
+            # Remove BOM characters
+            h_norm = h_norm.lstrip('\ufeff')
+            
+            if h_norm in ["device name", "nome do dispositivo", "hostname", "devicename",
+                          "nome de dispositivo", "managed device name", "nome dispositivo",
+                          "computer name", "computername", "nome do computador",
+                          "host name", "host", "device", "dispositivo", "name", "nome"]:
                 col_map["hostname"] = h
-            elif h_norm in ["primary user upn", "user principal name", "upn do usuário primário", "upn", "email", "e-mail", "userprincipalname"]:
+            elif h_norm in ["primary user upn", "user principal name", 
+                            "upn do usuário primário", "upn do usuario primario",
+                            "upn", "email", "e-mail", "userprincipalname",
+                            "primary user email address", "email address",
+                            "endereco de email", "endereço de email",
+                            "email do usuário primário", "email do usuario primario",
+                            "user email", "primary user email"]:
                 col_map["email"] = h
-            elif h_norm in ["primary user display name", "nome de exibição do usuário primário", "nome", "displayname", "user display name", "userdisplayname"]:
-                col_map["nome"] = h
-            elif h_norm in ["serial number", "número de série", "serial", "serialnumber"]:
+            elif h_norm in ["primary user display name", 
+                            "nome de exibição do usuário primário",
+                            "nome de exibicao do usuario primario",
+                            "nome", "displayname", "user display name", 
+                            "userdisplayname", "display name", "nome de exibição",
+                            "nome de exibicao", "nome do usuário", "nome do usuario",
+                            "primary user name"]:
+                if "hostname" not in col_map or col_map.get("hostname") != h:
+                    col_map["nome"] = h
+            elif h_norm in ["serial number", "número de série", "numero de serie",
+                            "serial", "serialnumber", "número serial", "numero serial"]:
                 col_map["serial"] = h
-            elif h_norm in ["device model", "modelo do dispositivo", "model", "devicemodel"]:
+            elif h_norm in ["device model", "modelo do dispositivo", "model", 
+                            "devicemodel", "modelo", "device type", "tipo de dispositivo"]:
                 col_map["model"] = h
-            elif h_norm in ["manufacturer", "fabricante"]:
+            elif h_norm in ["manufacturer", "fabricante", "marca"]:
                 col_map["manufacturer"] = h
-            elif h_norm in ["ip address", "endereço ip", "ip", "ipv4 address", "ipaddress"]:
+            elif h_norm in ["ip address", "endereço ip", "endereco ip", "ip", 
+                            "ipv4 address", "ipaddress", "ip do dispositivo",
+                            "ethernet ipv4", "wi fi ipv4", "wifi ipv4",
+                            "wifiipv4address", "ethernetipv4address",
+                            "wi fi ipv4 address", "ethernet ipv4 address"]:
                 col_map["ip"] = h
 
+        logger.info(f"Colunas mapeadas: {col_map}")
+
         if "hostname" not in col_map:
-            return jsonify({"erro": "Coluna de Hostname/Nome do dispositivo não encontrada no CSV. As colunas reconhecidas são: 'Device name', 'Nome do dispositivo', 'Hostname' ou 'DeviceName'."}), 400
+            header_list = ', '.join([f"'{h}'" for h in headers[:15]])
+            return jsonify({"erro": f"Coluna de Hostname não encontrada. Colunas do seu CSV: [{header_list}]. Renomeie a coluna do hostname para 'Device name' ou 'Nome do dispositivo'."}), 400
 
         colaboradores_importados = 0
         maquinas_importadas = 0
@@ -790,7 +841,9 @@ def import_intune():
                 
                 # Fetch existing collaborators and machines to map/update
                 cursor.execute("SELECT ID, RACF, Funcional, Nome, Email FROM colaboradores")
-                colab_cache = {row["RACF"]: dict(row) for row in cursor.fetchall()}
+                todas_linhas = cursor.fetchall()
+                colab_cache_racf = {row["RACF"]: dict(row) for row in todas_linhas if row["RACF"]}
+                colab_cache_email = {row["Email"].lower(): dict(row) for row in todas_linhas if row["Email"]}
                 
                 cursor.execute("SELECT ID, Hostname FROM maquinas")
                 maq_cache = {row["Hostname"]: row["ID"] for row in cursor.fetchall()}
@@ -815,58 +868,53 @@ def import_intune():
                     if "email" in col_map:
                         upn = row.get(col_map["email"], "").strip().lower()
                     
-                    # Get or create collaborator
                     user_id = None
                     if not upn:
                         # Associa a um usuário genérico "Sem Usuário"
                         racf = "SEMUSER"
                         nome = "Sem Usuário"
                         email = ""
+                        
+                        if racf in colab_cache_racf:
+                            user_id = colab_cache_racf[racf]["ID"]
                     else:
-                        # Extract RACF from UPN prefix
-                        username = upn.split('@')[0]
-                        # Normalize username: keep only alphanumeric characters, max 7 length
-                        username_clean = re.sub(r'[^a-zA-Z0-9]', '', username)
-                        racf = username_clean[:7].upper()
-                        if not racf:
-                            racf = "SEMUSER"
-                            nome = "Sem Usuário"
-                            email = ""
-                        else:
-                            nome = row.get(col_map.get("nome"), "").strip() if "nome" in col_map else ""
-                            if not nome:
-                                # Fallback: format name from username
-                                nome = username.replace('.', ' ').title()
-                            email = upn
-                    
-                    # Check if collaborator exists
-                    if racf in colab_cache:
-                        user_id = colab_cache[racf]["ID"]
-                    else:
-                        # Try to get functional number
-                        # Extract digits from RACF if possible
-                        digits = "".join([c for c in racf if c.isdigit()])
-                        if digits and 1 <= len(digits) <= 9:
-                            funcional = digits
-                        else:
-                            funcional = str(next_func)
-                            next_func += 1
+                        email = upn
+                        nome = row.get(col_map.get("nome"), "").strip() if "nome" in col_map else ""
+                        if not nome:
+                            username = upn.split('@')[0]
+                            nome = username.replace('.', ' ').title()
                             
-                        # Double check if this functional is already used
+                        if email in colab_cache_email:
+                            user_id = colab_cache_email[email]["ID"]
+
+                    # Create collaborator if not found
+                    if user_id is None:
+                        if not email:
+                            racf_val = "SEMUSER"
+                        else:
+                            racf_val = None # NAO gerar RACF a partir do email
+                        
+                        funcional = str(next_func)
+                        next_func += 1
+                        
                         cursor.execute("SELECT ID FROM colaboradores WHERE Funcional=?", (funcional,))
                         if cursor.fetchone():
-                            # Generate unique
                             funcional = str(next_func)
                             next_func += 1
                             
                         cursor.execute('''
                             INSERT INTO colaboradores (RACF, Funcional, Nome, Email, Status)
                             VALUES (?, ?, ?, ?, 'Ativo')
-                        ''', (racf, funcional, nome, email))
+                        ''', (racf_val, funcional, nome, email))
                         user_id = cursor.lastrowid
                         
-                        # Cache it
-                        colab_cache[racf] = {"ID": user_id, "RACF": racf, "Funcional": funcional, "Nome": nome, "Email": email}
+                        # Update caches
+                        new_colab = {"ID": user_id, "RACF": racf_val, "Funcional": funcional, "Nome": nome, "Email": email}
+                        if email:
+                            colab_cache_email[email] = new_colab
+                        if racf_val:
+                            colab_cache_racf[racf_val] = new_colab
+                        
                         colaboradores_importados += 1
                         
                     # Determine machine properties
@@ -1174,7 +1222,12 @@ def intune_disconnect():
             conn.execute("DELETE FROM configuracoes WHERE Chave IN ('intune_access_token', 'intune_refresh_token', 'intune_token_expires')")
     return jsonify({"mensagem": "Conta desconectada com sucesso!"}), 200
 
+def open_browser():
+    time.sleep(1.5)
+    webbrowser.open("http://127.0.0.1:5000")
+
 if __name__ == '__main__':
     init_db()
     migrate_excel_to_sqlite()
-    app.run(debug=False, port=5000, threaded=True, host="0.0.0.0")
+    threading.Thread(target=open_browser, daemon=True).start()
+    app.run(debug=False, port=5000, threaded=True, host="127.0.0.1")
